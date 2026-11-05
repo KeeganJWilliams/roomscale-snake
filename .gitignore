@@ -3,3 +3,7 @@ __pycache__/
 .venv/
 venv/
 .env
+
+# ArUco vision outputs
+markers/
+camera_*.jpg
