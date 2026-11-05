@@ -1,4 +1,4 @@
-"""Find which camera index is which. Run:  python list_cameras.py
+"""Find which camera index is which. Run:  python -m vision.list_cameras
 Saves a test photo from each working camera (camera_0.jpg, camera_1.jpg, ...)
 so you can open them and see which one is the ELP camera.
 """
