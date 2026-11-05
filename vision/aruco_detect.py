@@ -42,7 +42,7 @@ while True:
         failures += 1
         if failures > 100:
             print("Failed to read frames from the camera. Check Camera permission "
-                  "and CAMERA_INDEX (run list_cameras.py).")
+                  "and CAMERA_INDEX (run python -m vision.list_cameras).")
             break
         time.sleep(0.05)
         continue
