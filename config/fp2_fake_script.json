@@ -1,0 +1,22 @@
+{
+  "loop": true,
+  "events": [
+    {"at_ms": 0, "zone": "center", "occupied": true},
+    {"at_ms": 1500, "zone": "center", "occupied": false},
+    {"at_ms": 1520, "zone": "up", "occupied": true},
+    {"at_ms": 2200, "zone": "up", "occupied": false},
+    {"at_ms": 2220, "zone": "center", "occupied": true},
+    {"at_ms": 3000, "zone": "center", "occupied": false},
+    {"at_ms": 3020, "zone": "right", "occupied": true},
+    {"at_ms": 3700, "zone": "right", "occupied": false},
+    {"at_ms": 3720, "zone": "center", "occupied": true},
+    {"at_ms": 4500, "zone": "center", "occupied": false},
+    {"at_ms": 4520, "zone": "down", "occupied": true},
+    {"at_ms": 5200, "zone": "down", "occupied": false},
+    {"at_ms": 5220, "zone": "center", "occupied": true},
+    {"at_ms": 6000, "zone": "center", "occupied": false},
+    {"at_ms": 6020, "zone": "left", "occupied": true},
+    {"at_ms": 6700, "zone": "left", "occupied": false},
+    {"at_ms": 6720, "zone": "center", "occupied": true}
+  ]
+}

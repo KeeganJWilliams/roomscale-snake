@@ -3,3 +3,11 @@ __pycache__/
 .venv/
 venv/
 .env
+
+# HomeKit pairing data and setup codes: never commit these.
+pairing.json
+charmap.json
+
+# Telemetry captures are per-session, not source.
+telemetry/logs/
+.pytest_cache/
