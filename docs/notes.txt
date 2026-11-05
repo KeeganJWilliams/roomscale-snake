@@ -1,0 +1,84 @@
+Sensors (facts we confirmed)
+
+Aqara FP2 (now PRIMARY steering sensor): through Home Assistant it only exposes on/off occupancy per zone, with no coordinates. Zones are drawn in the Aqara app (needs the cloud for setup), which works fine for a d-pad.
+FP2 runtime path: likely readable locally through HA's HomeKit integration rather than Aqara's cloud integration (verify). Either way Home Assistant (or HomeKit) is back in the steering path, so measure FP2 latency early. It decides whether we hit the O3 150 ms median.
+Sensy One (now FALLBACK): a 24 GHz mmWave radar that reports X/Y coordinates for multiple people via ESPHome (S1 Pro tracks 3, E1 Pro tracks 5). Still need to confirm which model the Aware Home has. Readable directly over ESPHome's native API (aioesphomeapi), skipping Home Assistant and cutting latency.
+Note for report: the proposal named Sensy One primary / FP2 fallback. We swapped them. Document why as a design decision.
+Cameras: the Amcrest cameras run through Frigate, but read their raw RTSP stream into OpenCV rather than using Frigate's events. If no camera sees the projected wall, use a USB webcam placed near the projector.
+Other usable Aware Home devices: outlet power readings (a real lamp switched on = game input), door contacts (game events), MultiSensor 6 light sensors (tune projection contrast, verify lights actually changed), ESPresense (tell players apart, room-level only).
+Not useful for steering: PIR motion sensors, because of their cooldown periods.
+
+Steering design
+
+D-pad layout on the floor in front of the wall: neutral center zone, step into one of four zones to turn, return to center to keep going. Player faces the wall, so stepping toward the wall = UP. Explain this in the tutorial.
+FP2 needs 5 zones drawn in the Aqara app: center, up, down, left, right.
+Turn when entering a zone; ignore commands that reverse the snake into itself.
+Deadzone vs debounce:
+- Deadzone = SPACE. A gap between zones. Fixes a player standing still on a boundary, where sensor jitter would flip UP/RIGHT every frame. With FP2 this is free: leave gaps between zones when drawing them in the app.
+- Debounce = TIME. Only accept a zone once it has been stable for N ms. Fixes noise spikes/reflections and passing through a zone (walking LEFT to RIGHT clips the UP zone for a moment). A deadzone can't fix these because they can land deep inside a zone.
+- In code, treat "no zone" (in a gap) and "two zones at once" the same as center: keep the current direction.
+- Debounce adds directly to latency (150 ms median budget), and the FP2 probably already smooths internally. Build it as a setting, start at 0, record real steering traces in the basement (including a LEFT to RIGHT walk through UP), and raise it only until false turns stop.
+Start snake speed slow, about 2–4 cells per second. Stepping is much slower than pressing keys.
+The sensor sees everyone, so keep observers and the level designer outside the steering zones.
+
+Architecture rules
+
+The engine never imports sensor code. Input adapters (keyboard, FP2, Sensy One) only produce UP/DOWN/LEFT/RIGHT.
+The engine emits events (game_start, food_eaten, collision, game_over, paused/resumed; still to add: portal_used, gate_unlocked) that ambient and telemetry listen to.
+Objects bring the physical world into the game and change game state. Ambient only reacts to events and never changes game state, so it can be slower and fail without breaking gameplay.
+Object map is scanned at setup and frozen for each round, so detection glitches mid-round can't change the play-field. Rescan between rounds.
+Movable walls (stretch): rescan periodically or on a key press, and ignore objects mid-move.
+
+Camera and OpenCV
+
+Detect objects with ArUco markers, not color, because projected light confuses color detection.
+Use opencv-python, not contrib. ArUco has been in the main package since 4.7, with the newer ArucoDetector API, so older tutorials may not match. Never install both packages.
+Projector warp: NOT needed. The projector's keystone handles it.
+Camera-to-grid homography: STILL needed. The camera sees the wall at an angle, so we need it to turn a marker's pixel position into a grid cell.
+Auto-calibrate: project 4 ArUco markers at the grid corners, detect them with the camera, cv2.findHomography. No hand-clicking. Projecting extra test markers measures registration error for O3 (median <= 5 cm across 12 points).
+Dictionary: DICT_4X4_50 (most reliable at small sizes).
+Reserved marker IDs: 0–3 calibration corners, 10–19 portals (pairs 10/11, 12/13, ...), 20–29 keys, 30–39 gates, 40+ walls.
+Marker size: each marker should appear at least ~40–60 px wide in the camera image. Work out the physical size once we know projection size and camera distance.
+Print on matte paper or cardstock. No glossy lamination: projector glare hides the marker. Matte laminate is OK.
+Scan markers while the projector shows a plain frame (white or dark), not mid-game, because projected graphics on top of a marker can break detection.
+
+Latency and devices
+
+Timestamp every stage (sensor → Home Assistant → game → frame). Measure end-to-end with 240 fps phone video.
+Skipping HA only works for the Sensy One (ESPHome). The FP2 goes through HA/HomeKit.
+Ambient can stay on Home Assistant. Its target is looser (p95 <= 750 ms), and using HA fits the "use the room's existing setup" story. If HA is a pain, the Hue bridge has a local API we can call directly.
+Audio: play sound effects through a local speaker with pygame.mixer, not the Echo (cloud = slow).
+The Hue bridge throttles rapid commands, so batch light changes.
+Bright room lights wash out the projection. Dim them or keep them away from the projected surface.
+Device bring-up cutoff at the midpoint: any device not working by then gets replaced by its fallback.
+
+Repo setup
+
+requirements.txt: pygame-ce, opencv-python (opencv-python is NOT in the file yet, add it). Don't install regular pygame alongside pygame-ce; both use import pygame.
+.gitignore: __pycache__/, *.pyc, .venv/, venv/, .env. The Home Assistant token goes in .env and never gets pushed.
+Optional .gitattributes with * text=auto to keep Windows and Mac line endings consistent.
+One branch per module. First push of a new branch: git push -u origin <branch>.
+
+
+Updates after AH visits
+
+We may not need homography because it seems that our projector has the ability to adjust keystones to distort image for us manually.
+  -> Resolved: drop the projector warp. Keep the camera-to-grid homography (see Camera and OpenCV). Mention the keystone choice in the report since the proposal promised homography calibration.
+Because of the way the projector is (bulky), we're not going to project to the floor anymore. We're going to project to wall in a basement to prevent other people/objects from interfering with motion sensors
+  -> Steering zones stay on the floor in front of the wall. Stepping toward the wall = UP.
+Since we're projecting on wall, instead of using blocks for aruco sensors, we're thinking sticky notes. May need to adjust size as needed.
+We need to get a baseline for our projection size so we know how big we need to make aruco sensors.
+  -> Also measure camera distance to the wall. Target ~40–60 px per marker in the camera image.
+I'm not sure what is the best way to put aruco sensors on the note or possibly laminate paper.
+  -> Matte paper/cardstock or matte laminate. No glossy lamination.
+Switching to Aqara FP2 for motion sensing: the app lets us draw detection zones. See Sensors and Steering design.
+
+Ambient ideas
+
+Sound (local speaker): snake hissing sound (intermittently, not too much. maybe upon game start), apple munching sounds, game over sounds
+Lights in basement:
+- First check what Hue lights (if any) the basement has. If none, ask the AH mentor about pairing a Hue bulb, lightstrip, or Play bar with their bridge.
+- Idea: IllumiRoom-style glow around the projection (already in our citations). Put a lightstrip or bulb around/behind the projected area, outside the projector beam.
+- Game start: room lights dim, edge glow on. Food: short green pulse. Collision/game over: red flash. Portals: each pair gets its own color.
+- Keep Hue light off the projected wall so it doesn't wash out the image. Keep lighting steady during marker scans.
+- Hue + local audio covers O2's "two ambient output classes".
