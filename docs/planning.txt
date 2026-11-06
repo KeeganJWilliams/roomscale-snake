@@ -1,0 +1,28 @@
+Roomscale Snake SW Planning (Codebase Outline)
+Primary Directories of Codebase
+1.	Engine. This section is going to consist of gridmaking, game ticking and the game loop, snake status (position, coordinates, and length), instantiating food on the map, collision detection, and game states (current number of fruits eaten, personal best). DONE for the core loop (walls, food, collisions, pause/restart, events). STILL TO ADD: portal, key, and gate cell types, plus PORTAL_USED and GATE_UNLOCKED events, with tests. Right now the engine only knows walls.
+2.	Input. Section where different game controllers are implemented. Keyboard (DONE, for development). Aqara FP2 (PRIMARY): turns zone on/off events into UP/DOWN/LEFT/RIGHT, using 5 zones drawn in the Aqara app with gaps between them as the deadzone. Sensy One (FALLBACK): X/Y coordinates over ESPHome mapped to zones in code. Shared steering logic: debounce as a tunable setting (start at 0), "no zone" or "two zones" = keep direction, ignore reversals, stale-input pause.
+3.	Render. Draws game onto grid (DONE). No homography warp needed: the projector's keystone handles distortion. Will also draw calibration markers for Objects and portal/key/gate graphics.
+4.	Objects. Where detection will occur, marker sensing. Will find objects on the grid, determine coordinates, categorize them. Important since objects can change game state (e.g. snake going through portal changes the snakes coordinates as it passes through). Objects are ArUco markers on sticky notes/paper on the projected wall (DICT_4X4_50, matte paper). Includes the camera-to-grid homography, auto-calibrated by projecting 4 corner markers. Reserved IDs: 0–3 calibration, 10–19 portals (pairs), 20–29 keys, 30–39 gates, 40+ walls. Map is scanned at setup and frozen per round.
+5.	Ambient. Reacts to game events, never changes game state. Lights: Philips Hue through Home Assistant (or the Hue bridge's local API), e.g. a glow around the projection that reacts to events. Sound: local speaker with pygame.mixer instead of the Echo (Echo goes through the cloud = slow).
+6.	Telemetry. Logs for O3: timestamp each stage (sensor → HA → game → frame), ambient-event latency, registration error, soak test.
+
+Software Stack
+-	Python 3 for language of choice
+-	pygame-ce (used to help build game loop & game engine, rendering, keyboard input, sound via pygame.mixer)
+-	opencv-python for ArUco marker detection and camera-to-grid homography (not opencv-contrib; add to requirements.txt)
+-	Home Assistant WebSocket API for FP2 zone states and Hue commands (FP2 likely connects to HA locally through HomeKit, verify)
+-	aioesphomeapi to read the Sensy One directly, skipping HA (only if we fall back to Sensy One)
+
+
+Importance (order of implementation, per Gantt Chart): Engine and keyboard portion of Input are DONE, along with the basic Render. The projector warp step is dropped (keystone). Next, three tracks in parallel:
+  a) Engine: portal/key/gate cells and events (no AH access needed).
+  b) Objects: ArUco detector, camera-to-grid auto-calibration, frozen object map (mostly doable at home with a webcam and printed markers).
+  c) Input: FP2 adapter bring-up and latency measurement at the AH, then debounce tuning from recorded steering traces. This is the riskiest piece and is required for O1, so schedule it for the next AH visit and don't let it slip behind Objects.
+Ambient is still last since it does not contribute to the primary game logic, but check what Hue lights the basement has early so we know what to plan for. Telemetry is where logs for Objective 3 will be housed regarding sensor-to-projection, ambient-event latency, registration error, and statistics/analysis of the 15-minute soak test.
+Key date: feature freeze November 20 (portals and key/gate done by then).
+
+
+Sources/Documentation
+https://docs.opencv.org/5.0/py_tutorials/py_tutorials.html (Open Computer Vision Library. Seems to have many resources on how to fix common problems that we'll encounter, all open source. Documentation & Tutorials)
+https://pyga.me/ (pygame-ce, or pygame  - Community Edition. seems to be favored for 2D arcade games, which we happen to be making. Documentation & Tutorials)
