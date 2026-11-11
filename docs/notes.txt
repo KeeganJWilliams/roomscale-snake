@@ -24,7 +24,7 @@ The sensor sees everyone, so keep observers and the level designer outside the s
 Architecture rules
 
 The engine never imports sensor code. Input adapters (keyboard, FP2, Sensy One) only produce UP/DOWN/LEFT/RIGHT.
-The engine emits events (game_start, food_eaten, collision, game_over, paused/resumed; still to add: portal_used, gate_unlocked) that ambient and telemetry listen to.
+The engine emits events (game_start, food_eaten, collision, game_over, paused/resumed, portal_used, key_collected, gate_unlocked) that ambient and telemetry listen to.
 Objects bring the physical world into the game and change game state. Ambient only reacts to events and never changes game state, so it can be slower and fail without breaking gameplay.
 Object map is scanned at setup and frozen for each round, so detection glitches mid-round can't change the play-field. Rescan between rounds.
 Movable walls (stretch): rescan periodically or on a key press, and ignore objects mid-move.
