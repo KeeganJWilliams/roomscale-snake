@@ -53,7 +53,8 @@ class Snake:
         hx, hy = self.head
         return (hx + self.direction.dx, hy + self.direction.dy)
 
-    def move(self, grow=False):
-        self.body.appendleft(self.next_head())
+    def move(self, grow=False, to=None):
+        """Advance one cell. `to` overrides the new head cell (portals)."""
+        self.body.appendleft(self.next_head() if to is None else to)
         if not grow:
             self.body.pop()

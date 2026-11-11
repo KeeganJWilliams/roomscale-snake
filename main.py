@@ -2,6 +2,7 @@
 
 Controls: arrow keys / WASD steer, SPACE starts or restarts,
 P pauses, F11 toggles fullscreen, ESC quits.
+--demo-objects adds sample portals, keys, and gates for play-testing.
 """
 
 import argparse
@@ -9,11 +10,20 @@ import logging
 
 import pygame
 
-from engine import Game, GameState, Ticker
+from engine import Game, GameState, Layout, Ticker
 from input.keyboard import KeyboardInput
 from render.screen import ScreenRenderer
 
 FPS = 60
+
+# Hand-placed objects for play-testing before marker detection is wired in.
+# Fits the default 20x15 grid; the snake starts at (10, 7) heading right.
+DEMO_LAYOUT = Layout(
+    portals=[((3, 3), (16, 11)), ((16, 3), (3, 11))],
+    keys={(10, 2): 1, (6, 13): 2},
+    gates={(18, 6): 1, (18, 7): 1, (18, 8): 1,
+           (12, 12): 2, (12, 13): 2, (12, 14): 2},
+)
 
 
 def parse_args():
@@ -24,6 +34,8 @@ def parse_args():
     parser.add_argument("--speed", type=float, default=3.0,
                         help="snake speed in cells per second (default 3)")
     parser.add_argument("--fullscreen", action="store_true")
+    parser.add_argument("--demo-objects", action="store_true",
+                        help="add sample portals, keys, and gates (needs at least 20x15)")
     return parser.parse_args()
 
 
@@ -37,7 +49,8 @@ def main():
     screen = pygame.display.set_mode((960, 760), flags)
     clock = pygame.time.Clock()
 
-    game = Game(width=args.cols, height=args.rows)
+    layout = DEMO_LAYOUT if args.demo_objects else None
+    game = Game(width=args.cols, height=args.rows, layout=layout)
     ticker = Ticker(cells_per_second=args.speed)
     keyboard = KeyboardInput()
     renderer = ScreenRenderer(game)

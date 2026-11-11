@@ -9,6 +9,20 @@ FOOD = (235, 70, 80)
 SNAKE_HEAD = (120, 230, 120)
 SNAKE_BODY = (60, 170, 80)
 TEXT = (235, 235, 235)
+# One color per portal pair and per key/gate id, so players can see what
+# goes with what. Portals and keys/gates use separate sets so a portal is
+# never mistaken for a gate. Colors wrap around if there are more ids.
+PORTAL_COLORS = [
+    (80, 160, 255),   # blue
+    (40, 220, 210),   # teal
+    (255, 255, 255),  # white
+]
+KEY_COLORS = [
+    (255, 170, 40),   # orange
+    (200, 90, 255),   # purple
+    (255, 230, 70),   # yellow
+    (255, 120, 190),  # pink
+]
 OVERLAY = (0, 0, 0, 160)
 
 HUD_HEIGHT = 40
@@ -18,8 +32,8 @@ class ScreenRenderer:
     """Draws the game to a pygame surface. Reads game state, never changes it.
 
     The grid is scaled to fit the window and centered, so resizing or
-    switching to the projector's resolution just works. Homography
-    warping for the projector will be added here later.
+    switching to the projector's resolution just works. Keystone is
+    handled by the projector itself, so no warping happens here.
     """
 
     def __init__(self, game):
@@ -48,6 +62,7 @@ class ScreenRenderer:
                          (left, top, cell * grid.width, cell * grid.height), 2)
         for x, y in grid.walls:
             pygame.draw.rect(surface, WALL, rect(x, y))
+        self._draw_objects(surface, cell, rect)
 
         if self.game.food is not None:
             pygame.draw.rect(surface, FOOD, rect(*self.game.food, inset=cell // 6),
@@ -59,6 +74,39 @@ class ScreenRenderer:
 
         self._draw_hud(surface)
         self._draw_overlay(surface)
+
+    @staticmethod
+    def _color(index, palette):
+        return palette[index % len(palette)]
+
+    def _draw_objects(self, surface, cell, rect):
+        game = self.game
+        thick = max(2, cell // 8)
+
+        # Portals: a ring in the pair's color.
+        for i, pair in enumerate(game.layout.portals):
+            for x, y in pair:
+                pygame.draw.ellipse(surface, self._color(i, PORTAL_COLORS), rect(x, y, inset=cell // 10),
+                                    thick)
+
+        # Gates: solid with bars while locked, a faint outline once open.
+        for (x, y), gate_id in game.layout.gates.items():
+            color = self._color(gate_id, KEY_COLORS)
+            r = rect(x, y)
+            if (x, y) in game.locked_gates:
+                pygame.draw.rect(surface, color, r)
+                for i in range(1, 3):
+                    bx = r.left + r.width * i // 3
+                    pygame.draw.line(surface, BACKGROUND, (bx, r.top), (bx, r.bottom - 1),
+                                     max(1, thick // 2))
+            else:
+                pygame.draw.rect(surface, color, r, 1)
+
+        # Keys: a diamond in the color of the gates they open.
+        for (x, y), key_id in game.keys.items():
+            r = rect(x, y, inset=cell // 5)
+            points = [r.midtop, r.midright, r.midbottom, r.midleft]
+            pygame.draw.polygon(surface, self._color(key_id, KEY_COLORS), points)
 
     def _draw_hud(self, surface):
         text = f"Score: {self.game.score}    Best: {self.game.best}"
