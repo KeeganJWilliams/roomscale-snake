@@ -1,3 +1,4 @@
 pygame-ce
+aiohomekit
 opencv-python
 numpy
