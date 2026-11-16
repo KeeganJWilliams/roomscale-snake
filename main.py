@@ -13,6 +13,8 @@ both at once:
 
 With --input fp2 the sensor runs on a background thread; if it is
 unreachable the game pauses and keeps retrying rather than crashing.
+
+--demo-objects adds sample portals, keys, and gates for play-testing.
 """
 
 import argparse
@@ -21,7 +23,7 @@ import sys
 
 import pygame
 
-from engine import Game, GameState, Ticker
+from engine import Game, GameState, Layout, Ticker
 from input import PlayerFound, PlayerLost, Turn
 from input.keyboard import KeyboardInput
 from render.screen import ScreenRenderer
@@ -29,6 +31,15 @@ from render.screen import ScreenRenderer
 FPS = 60
 
 log = logging.getLogger("main")
+
+# Hand-placed objects for play-testing before marker detection is wired in.
+# Fits the default 20x15 grid; the snake starts at (10, 7) heading right.
+DEMO_LAYOUT = Layout(
+    portals=[((3, 3), (16, 11)), ((16, 3), (3, 11))],
+    keys={(10, 2): 1, (6, 13): 2},
+    gates={(18, 6): 1, (18, 7): 1, (18, 8): 1,
+           (12, 12): 2, (12, 13): 2, (12, 14): 2},
+)
 
 
 def parse_args():
@@ -49,6 +60,8 @@ def parse_args():
                         help="replay a scripted FP2 event file instead of the sensor")
     parser.add_argument("--no-telemetry", action="store_true",
                         help="skip the FP2 zone-event CSV in telemetry/logs/")
+    parser.add_argument("--demo-objects", action="store_true",
+                        help="add sample portals, keys, and gates (needs at least 20x15)")
     return parser.parse_args()
 
 
@@ -111,7 +124,8 @@ def main():
     screen = pygame.display.set_mode((960, 760), flags)
     clock = pygame.time.Clock()
 
-    game = Game(width=args.cols, height=args.rows)
+    layout = DEMO_LAYOUT if args.demo_objects else None
+    game = Game(width=args.cols, height=args.rows, layout=layout)
     ticker = Ticker(cells_per_second=args.speed)
     renderer = ScreenRenderer(game)
 

@@ -11,3 +11,7 @@ charmap.json
 # Telemetry captures are per-session, not source.
 telemetry/logs/
 .pytest_cache/
+
+# ArUco vision outputs
+markers/
+camera_*.jpg
