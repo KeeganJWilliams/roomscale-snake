@@ -28,7 +28,8 @@ OCCUPANCY_SENSOR = normalize_uuid("86")    # HomeKit Occupancy Sensor service
 OCCUPANCY_DETECTED = normalize_uuid("71")  # its 0/1 characteristic
 NAME = normalize_uuid("23")
 
-HAP_SERVICE = "_hap._tcp.local."
+# aiohomekit needs a browser for both HAP types or Controller() fails to start
+HAP_SERVICES = ["_hap._tcp.local.", "_hap._udp.local."]
 POLL_INTERVAL_S = 0.2
 MAX_BACKOFF_S = 30.0
 
@@ -192,14 +193,14 @@ class _PairingSession:
         if not self.config.pairing_file.exists():
             raise PairingMissing(
                 f"{self.config.pairing_file} not found. Pair the FP2 once with "
-                "`aiohomekitctl pair -a fp2 -d <DEVICE_ID> -p <SETUP_CODE>`.")
+                "`python3 pair_fp2.py <NAME_SUFFIX> <SETUP_CODE>`.")
 
         self._zc = AsyncZeroconf()
         self._controller = Controller(
             async_zeroconf_instance=self._zc,
             char_cache=CharacteristicCacheFile(self.config.char_cache_file))
         await self._zc.__aenter__()
-        self._browser = AsyncServiceBrowser(self._zc.zeroconf, [HAP_SERVICE],
+        self._browser = AsyncServiceBrowser(self._zc.zeroconf, HAP_SERVICES,
                                             listener=ZeroconfServiceListener())
         await self._controller.__aenter__()
         try:

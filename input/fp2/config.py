@@ -8,7 +8,7 @@ from .steering import ZONE_NAMES
 
 DEFAULT_PATH = pathlib.Path("config/fp2_zones.json")
 
-#: Written by `aiohomekitctl pair`. Never commit it.
+#: Written by `pair_fp2.py`. Never commit it.
 DEFAULT_PAIRING_FILE = pathlib.Path.home() / ".local/share/aiohomekit/pairing.json"
 
 

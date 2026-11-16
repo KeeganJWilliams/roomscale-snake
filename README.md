@@ -57,9 +57,16 @@ Needs the physical sensor and its 8-digit setup code:
 
 ```
 pip install aiohomekit
-aiohomekitctl discover -u                                  # find the Device ID
-aiohomekitctl pair -a fp2 -d <DEVICE_ID> -p <SETUP_CODE>
+python3 pair_fp2.py A65F <SETUP_CODE>    # A65F = end of the sensor's name, e.g. Presence-Sensor-FP2-A65F
 ```
+
+Use `pair_fp2.py`, not `aiohomekitctl pair`: in aiohomekit 4.0.1 the CLI
+pairs the sensor but saves an empty pairing file, which leaves the FP2
+locked to keys nobody has. The FP2 must first be removed from Apple Home /
+Home Assistant (a HomeKit device has one controller), and its Device ID
+changes every time its pairing is reset, which is why the script finds it
+by name. Re-adding the FP2 in the Aqara app resets the pairing; just rerun
+`pair_fp2.py`.
 
 That writes `~/.local/share/aiohomekit/pairing.json`. **Never commit that
 file or a setup code** - `pairing.json`, `charmap.json` and `.env` are in

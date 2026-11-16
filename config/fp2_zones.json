@@ -1,6 +1,6 @@
 {
   "alias": "fp2",
-  "zones": {"center": "1.10", "up": "1.13", "down": "1.16", "left": "1.19", "right": "1.22"},
+  "zones": {"center": "1.2694", "up": "1.2702", "down": "1.2698", "left": "1.2706", "right": "1.2710"},
   "debounce_ms": 150,
   "lost_grace_ms": 1000
 }

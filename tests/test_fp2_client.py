@@ -77,7 +77,7 @@ class TestPairingErrors(unittest.TestCase):
             client = Fp2Client(config, lambda event: None, statuses.append)
             with self.assertRaises(PairingMissing) as caught:
                 asyncio.run(client.run(threading.Event(), retry=False))
-        self.assertIn("aiohomekitctl pair", str(caught.exception))
+        self.assertIn("pair_fp2.py", str(caught.exception))
         self.assertEqual(statuses, [False], "a dropout pauses the game")
 
     def test_run_forever_never_raises_into_the_game(self):
