@@ -2,6 +2,8 @@ import pygame
 
 from engine import Direction
 
+from .base import Turn, now_ns
+
 KEY_DIRECTIONS = {
     pygame.K_UP: Direction.UP,
     pygame.K_w: Direction.UP,
@@ -17,9 +19,9 @@ KEY_DIRECTIONS = {
 class KeyboardInput:
     """Development controller: arrow keys or WASD.
 
-    Like every input adapter it only produces Directions. The main loop
-    calls poll() once per frame and passes the result to the game, so
-    the Sensy One and FP2 adapters can share the same poll() interface.
+    An InputSource like every other adapter: handle_event() collects
+    pygame key presses, poll() hands the main loop Commands. It never
+    emits PlayerLost, so the keyboard alone never pauses the game.
     """
 
     def __init__(self):
@@ -27,9 +29,12 @@ class KeyboardInput:
 
     def handle_event(self, event):
         if event.type == pygame.KEYDOWN and event.key in KEY_DIRECTIONS:
-            self._latest = KEY_DIRECTIONS[event.key]
+            self._latest = Turn(KEY_DIRECTIONS[event.key], t_recv_ns=now_ns())
 
     def poll(self):
-        """Return the most recent direction since the last poll, or None."""
-        direction, self._latest = self._latest, None
-        return direction
+        """Return the most recent direction since the last poll, if any."""
+        turn, self._latest = self._latest, None
+        return [turn] if turn is not None else []
+
+    def close(self):
+        pass
