@@ -190,7 +190,7 @@ class TestCalibrationScreen(unittest.TestCase):
         frame = self.pygame.surfarray.array3d(surface).transpose(1, 0, 2)[:, :, ::-1].copy()
 
         result = analyze([MarkerDetector().detect(frame)], W, H)
-        cell, left, top = renderer._layout(surface)
+        cell, left, top, _panel = renderer._layout(surface)
         for x, y in [(5, 5), (0, 7), (19, 14), (10, 0)]:
             center = (left + (x + 0.5) * cell, top + (y + 0.5) * cell)
             self.assertEqual(result.calibration.cell_at(center), (x, y))
@@ -220,7 +220,7 @@ class TestPlacementGrid(unittest.TestCase):
         renderer.placement_grid = placement_grid
         surface = self.pygame.Surface((1280, 800))
         renderer.draw(surface)
-        return surface, renderer._layout(surface)
+        return surface, renderer._layout(surface)[:3]
 
     def test_lines_and_blocked_cells_shown_between_rounds(self):
         from render.screen import GRID_LINE

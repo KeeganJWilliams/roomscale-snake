@@ -1,7 +1,8 @@
 """Room-Scale Snake.
 
 Controls: arrow keys / WASD steer, SPACE starts or restarts,
-P pauses, F11 toggles fullscreen, ESC quits. With --camera, C scans the
+P pauses, F11 toggles fullscreen, T starts the tutorial (N skips a step,
+ESC leaves it), ESC quits. With --camera, C scans the
 wall's ArUco markers between rounds and loads them as the level.
 
 Steering can come from the keyboard, from the Aqara FP2 floor d-pad, or
@@ -28,6 +29,7 @@ from engine import Game, GameState, Layout, Ticker
 from input import PlayerFound, PlayerLost, Turn
 from input.keyboard import KeyboardInput
 from render.screen import ScreenRenderer
+from telemetry.tutorial_log import write_tutorial_log
 
 FPS = 60
 # Wider than the 20x15 play area needs, so the d-pad has dead space to sit
@@ -52,10 +54,11 @@ def parse_args():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--cols", type=int, default=20, help="grid width in cells")
     parser.add_argument("--rows", type=int, default=15, help="grid height in cells")
-    parser.add_argument("--speed", type=float, default=0.75,
-                        help="snake speed in cells per second (default 0.75, "
-                             "~1.3s per cell: slow enough that FP2 latency and "
-                             "the debounce still leave time to react)")
+    parser.add_argument("--speed", type=float, default=0.85,
+                        help="snake speed in cells per second (default 0.85, about "
+                             "1.2 s per cell: slow enough that FP2 latency and "
+                             "the debounce still leave time to react). The "
+                             "tutorial uses the same speed")
     parser.add_argument("--fullscreen", action="store_true")
     parser.add_argument("--input", choices=("keyboard", "fp2", "both"),
                         default="keyboard",
@@ -72,7 +75,18 @@ def parse_args():
     parser.add_argument("--camera", metavar="SOURCE",
                         help="camera index or RTSP URL for scanning markers; "
                              "press C between rounds to scan")
+    parser.add_argument("--tutorial", action="store_true",
+                        help="start in the tutorial (it's also on T between rounds)")
     return parser.parse_args()
+
+
+def start_tutorial(game, pad, speed):
+    from tutorial import Tutorial
+
+    log.info("tutorial started (%s)", "FP2 pad" if pad is not None else "keyboard")
+    return Tutorial(game.width, game.height, has_pad=pad is not None,
+                    pad_zones=(lambda: pad.zone_state().occupied) if pad is not None
+                    else None, speed=speed)
 
 
 def scan_objects(game, renderer, screen, scanner):
@@ -160,17 +174,22 @@ def main():
     layout = DEMO_LAYOUT if args.demo_objects else None
     game = Game(width=args.cols, height=args.rows, layout=layout)
     ticker = Ticker(cells_per_second=args.speed)
-    # Let the renderer mirror the floor pad when a sensor is driving it.
-    pad_source = next((s for s in sources if hasattr(s, "zone_state")), None)
-    renderer = ScreenRenderer(game, pad_state=pad_source.zone_state if pad_source
-                              else None)
-    renderer = ScreenRenderer(game)
+    # The FP2 (if any) reports which pad squares are occupied: the d-pad
+    # panel mirrors it and the tutorial uses it. The keyboard has no pad.
+    # `pad` is the floor pad itself (the FP2), which the tutorial needs for its
+    # center and step-off lessons. The panel shows the FP2 when there is one,
+    # otherwise the arrow keys, so it reacts to input either way.
+    pad = next((s for s in sources if s is not keyboard), None)
+    shown = pad or keyboard
+    renderer = ScreenRenderer(game, pad_state=shown.zone_state if shown is not None else None)
     scanner = None
     if args.camera is not None:
         from objects.scanner import Scanner
 
         scanner = Scanner(args.camera)
         renderer.placement_grid = True
+
+    tutorial = start_tutorial(game, pad, args.speed) if args.tutorial else None
 
     running = True
     try:
@@ -180,9 +199,20 @@ def main():
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
+                elif event.type == pygame.KEYDOWN and tutorial is not None:
+                    # Tutorial keys: ESC leaves it, N skips a step (facilitator).
+                    if event.key == pygame.K_ESCAPE:
+                        tutorial.abort()
+                    elif event.key == pygame.K_n:
+                        tutorial.skip()
+                    elif event.key == pygame.K_F11:
+                        pygame.display.toggle_fullscreen()
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         running = False
+                    elif event.key == pygame.K_t and game.state in (
+                            GameState.READY, GameState.GAME_OVER):
+                        tutorial = start_tutorial(game, pad, args.speed)
                     elif event.key == pygame.K_SPACE and game.state in (
                             GameState.READY, GameState.GAME_OVER):
                         game.start()
@@ -204,9 +234,24 @@ def main():
                 if keyboard is not None:
                     keyboard.handle_event(event)
 
-            for source in sources:
-                for command in source.poll():
-                    apply_command(game, command)
+            commands = [c for source in sources for c in source.poll()]
+
+            if tutorial is not None:
+                for command in commands:
+                    tutorial.handle(command)
+                tutorial.update(dt)
+                if tutorial.finished:
+                    if not args.no_telemetry:
+                        write_tutorial_log(tutorial)
+                    tutorial = None
+                    ticker.reset()
+                else:
+                    renderer.draw_tutorial(screen, tutorial)
+                    pygame.display.flip()
+                    continue
+
+            for command in commands:
+                apply_command(game, command)
 
             if game.state is GameState.PLAYING:
                 for _ in range(ticker.update(dt)):

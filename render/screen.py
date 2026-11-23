@@ -32,6 +32,7 @@ WARNING = (255, 200, 90)
 CALIBRATION_BG = (255, 255, 255)
 SCAN_TEXT = (150, 150, 150)
 GRID_LINE = (95, 105, 125)
+TUTORIAL_BAND = 104   # height of the prompt band at the top
 NO_MARKER = (200, 60, 60, 90)   # translucent red: corner blocks + snake start
 
 # The on-screen d-pad mirrors the taped floor pad: lit zones are the ones
@@ -92,21 +93,23 @@ class ScreenRenderer:
         # None for keyboard-only play, where the pad is drawn as a legend.
         self.pad_state = pad_state
         self.font = pygame.font.Font(None, 32)
-        self.small_font = pygame.font.Font(None, 24)
         self.big_font = pygame.font.Font(None, 64)
         self.small_font = pygame.font.Font(None, 26)
+        self.prompt_font = pygame.font.Font(None, 48)
         self._notice = None
         self._marker_cache = {}
         # Show cell lines and no-marker cells between rounds. main.py turns
         # this on when a camera is set up for scanning.
         self.placement_grid = False
+        # Zone the tutorial wants the player to step into; outlined on the pad.
+        self.pad_target = None
 
     def _layout(self, surface):
         grid = self.game.grid
         width, height = surface.get_size()
         return compute_layout(width, height, grid.width, grid.height)
 
-    def draw(self, surface):
+    def draw(self, surface, hud=True):
         surface.fill(BACKGROUND)
         cell, left, top, panel = self._layout(surface)
 
@@ -131,7 +134,8 @@ class ScreenRenderer:
 
         if panel is not None:
             self._draw_dpad(surface, panel)
-        self._draw_hud(surface)
+        if hud:
+            self._draw_hud(surface)
         self._draw_overlay(surface, cell, left, top)
         self._draw_notice(surface)
 
@@ -209,6 +213,9 @@ class ScreenRenderer:
                 fill = DPAD_IDLE
             pygame.draw.rect(surface, fill, r, border_radius=radius)
             pygame.draw.rect(surface, DPAD_EDGE, r, 2, border_radius=radius)
+            if name == self.pad_target:
+                pygame.draw.rect(surface, WARNING, r.inflate(gap * 2, gap * 2),
+                                 max(3, gap), border_radius=radius)
             glyph = BACKGROUND if active else DPAD_GLYPH
             if name == "center":
                 pygame.draw.circle(surface, glyph, r.center,
@@ -226,6 +233,9 @@ class ScreenRenderer:
             caption = "pad empty"
         label = self.small_font.render(caption, True, DPAD_GLYPH)
         surface.blit(label, label.get_rect(midtop=(pad.centerx, oy + side + GUTTER)))
+        # Stepping toward the wall is UP, the one mapping players get wrong.
+        wall = self.small_font.render("wall", True, DPAD_GLYPH)
+        surface.blit(wall, wall.get_rect(midbottom=(pad.centerx, oy - 2)))
 
     @staticmethod
     def _draw_arrow(surface, r, name, color):
@@ -258,6 +268,8 @@ class ScreenRenderer:
         else:
             title = "YOU WIN!" if self.game.won else "GAME OVER"
             lines = [title, f"Score: {self.game.score}", "Press SPACE to play again"]
+        if state is GameState.READY:
+            lines.append("Press T for the tutorial")
         if between_rounds and self.placement_grid:
             lines.append("Press C to scan markers")
 
@@ -275,6 +287,40 @@ class ScreenRenderer:
             label = font.render(line, True, TEXT)
             surface.blit(label, label.get_rect(center=(cx, y)))
             y += 50 if i == 0 else 36
+
+    # --- tutorial -------------------------------------------------------------
+
+    def draw_tutorial(self, surface, tutorial):
+        """Draw the tutorial: its board (with the d-pad panel, outlining the
+        square the current step wants), then a prompt band across the top."""
+        main_game, self.game = self.game, tutorial.game
+        self.pad_target = tutorial.step.target_zone
+        try:
+            self.draw(surface, hud=False)
+        finally:
+            self.game = main_game
+            self.pad_target = None
+
+        step = tutorial.step
+        width = surface.get_width()
+        band = pygame.Surface((width, TUTORIAL_BAND), pygame.SRCALPHA)
+        band.fill(NOTICE_BG)
+        surface.blit(band, (0, 0))
+
+        number, total = tutorial.progress
+        if step.kind != "done":
+            surface.blit(self.small_font.render(f"Tutorial {number}/{total}    "
+                                                "N = skip step, ESC = leave", True,
+                                                SCAN_TEXT), (12, 8))
+        title = self.prompt_font.render(step.title, True, TEXT)
+        surface.blit(title, title.get_rect(midtop=(width // 2, 30)))
+        if step.subtitle:
+            sub = self.font.render(step.subtitle, True, SCAN_TEXT)
+            surface.blit(sub, sub.get_rect(midtop=(width // 2, 74)))
+        if tutorial.hint:
+            hint = self.font.render(tutorial.hint, True, WARNING)
+            surface.blit(hint, hint.get_rect(midtop=(width // 2, TUTORIAL_BAND + 8)))
+
 
     # --- marker placement ---------------------------------------------------
 
@@ -327,7 +373,7 @@ class ScreenRenderer:
         corners. Shown while the camera scans: white lights the paper markers
         and no game graphics cover them."""
         surface.fill(CALIBRATION_BG)
-        cell, left, top = self._layout(surface)
+        cell, left, top, _panel = self._layout(surface)
         grid = self.game.grid
         for marker_id, (gx, gy, size) in corner_targets(grid.width, grid.height).items():
             px = max(6, round(size * cell))
