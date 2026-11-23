@@ -196,6 +196,50 @@ class TestCalibrationScreen(unittest.TestCase):
             self.assertEqual(result.calibration.cell_at(center), (x, y))
 
 
+class TestPlacementGrid(unittest.TestCase):
+    """Cell lines and no-marker cells show between rounds when scanning is on."""
+
+    @classmethod
+    def setUpClass(cls):
+        os.environ.setdefault("SDL_VIDEODRIVER", "dummy")
+        import pygame
+        pygame.init()
+        cls.pygame = pygame
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.pygame.quit()
+
+    def render(self, placement_grid, playing=False):
+        from render.screen import ScreenRenderer
+
+        game = Game(width=W, height=H)
+        if playing:
+            game.start()
+        renderer = ScreenRenderer(game)
+        renderer.placement_grid = placement_grid
+        surface = self.pygame.Surface((1280, 800))
+        renderer.draw(surface)
+        return surface, renderer._layout(surface)
+
+    def test_lines_and_blocked_cells_shown_between_rounds(self):
+        from render.screen import GRID_LINE
+
+        surface, (cell, left, top) = self.render(True)
+        line_px = (left + 5 * cell, top + 2 * cell + cell // 2)   # x=5 boundary, row 2
+        self.assertEqual(tuple(surface.get_at(line_px))[:3], GRID_LINE)
+        r, g, b, _ = surface.get_at((left + cell // 2, top + cell // 2))  # corner cell
+        self.assertGreater(r, g + 20)
+
+    def test_hidden_without_scanning_or_during_play(self):
+        from render.screen import GRID_LINE
+
+        for kwargs in ({"placement_grid": False}, {"placement_grid": True, "playing": True}):
+            surface, (cell, left, top) = self.render(**kwargs)
+            line_px = (left + 5 * cell, top + 2 * cell + cell // 2)
+            self.assertNotEqual(tuple(surface.get_at(line_px))[:3], GRID_LINE, kwargs)
+
+
 class TestStartCells(unittest.TestCase):
     def test_body_plus_one_ahead(self):
         game = Game(width=W, height=H)

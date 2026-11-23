@@ -160,6 +160,7 @@ def main():
         from objects.scanner import Scanner
 
         scanner = Scanner(args.camera)
+        renderer.placement_grid = True
 
     running = True
     try:

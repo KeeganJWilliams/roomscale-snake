@@ -62,6 +62,8 @@ python main.py --fullscreen --camera 1     # camera index or rtsp:// URL
 ```
 
 Stick markers on the wall inside the projected grid, one marker per cell.
+With `--camera` set, the screen between rounds shows the cell lines and
+shades the cells where markers aren't allowed in red.
 Between rounds press **C**: the game shows a white screen with four
 calibration markers (IDs 0-3) in the grid's corners, the camera grabs ~10
 frames, and the markers it finds become the level. Rules:

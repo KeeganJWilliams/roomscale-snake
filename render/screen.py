@@ -3,7 +3,7 @@ import time
 import pygame
 
 from engine import GameState
-from objects.calibration import calibration_marker_bitmap, corner_targets
+from objects.calibration import calibration_marker_bitmap, corner_cells, corner_targets
 
 BACKGROUND = (12, 14, 20)
 BORDER = (70, 78, 96)
@@ -31,6 +31,8 @@ NOTICE_BG = (0, 0, 0, 200)
 WARNING = (255, 200, 90)
 CALIBRATION_BG = (255, 255, 255)
 SCAN_TEXT = (150, 150, 150)
+GRID_LINE = (95, 105, 125)
+NO_MARKER = (200, 60, 60, 90)   # translucent red: corner blocks + snake start
 
 HUD_HEIGHT = 40
 
@@ -50,6 +52,9 @@ class ScreenRenderer:
         self.small_font = pygame.font.Font(None, 26)
         self._notice = None
         self._marker_cache = {}
+        # Show cell lines and no-marker cells between rounds. main.py turns
+        # this on when a camera is set up for scanning.
+        self.placement_grid = False
 
     def _layout(self, surface):
         grid = self.game.grid
@@ -83,7 +88,7 @@ class ScreenRenderer:
             pygame.draw.rect(surface, color, rect(x, y, inset=1), border_radius=cell // 5)
 
         self._draw_hud(surface)
-        self._draw_overlay(surface)
+        self._draw_overlay(surface, cell, left, top)
         self._draw_notice(surface)
 
     @staticmethod
@@ -123,11 +128,12 @@ class ScreenRenderer:
         text = f"Score: {self.game.score}    Best: {self.game.best}"
         surface.blit(self.font.render(text, True, TEXT), (12, 10))
 
-    def _draw_overlay(self, surface):
+    def _draw_overlay(self, surface, cell, left, top):
         state = self.game.state
         if state is GameState.PLAYING:
             return
 
+        between_rounds = state in (GameState.READY, GameState.GAME_OVER)
         if state is GameState.READY:
             lines = ["ROOM-SCALE SNAKE", "Press SPACE to start"]
         elif state is GameState.PAUSED:
@@ -135,10 +141,15 @@ class ScreenRenderer:
         else:
             title = "YOU WIN!" if self.game.won else "GAME OVER"
             lines = [title, f"Score: {self.game.score}", "Press SPACE to play again"]
+        if between_rounds and self.placement_grid:
+            lines.append("Press C to scan markers")
 
         shade = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
         shade.fill(OVERLAY)
         surface.blit(shade, (0, 0))
+        # Drawn on top of the shade so it stays bright enough to place markers by.
+        if between_rounds and self.placement_grid:
+            self._draw_placement_grid(surface, cell, left, top)
 
         cx, cy = surface.get_width() // 2, surface.get_height() // 2
         y = cy - 40 * (len(lines) - 1) // 2
@@ -147,6 +158,27 @@ class ScreenRenderer:
             label = font.render(line, True, TEXT)
             surface.blit(label, label.get_rect(center=(cx, y)))
             y += 50 if i == 0 else 36
+
+    # --- marker placement ---------------------------------------------------
+
+    def _draw_placement_grid(self, surface, cell, left, top):
+        """Cell lines plus shaded no-marker cells, shown between rounds so
+        whoever sets up the level can see which cell a marker will land in."""
+        grid = self.game.grid
+        blocked = corner_cells(grid.width, grid.height) | set(self.game.start_cells())
+        shade = pygame.Surface((cell, cell), pygame.SRCALPHA)
+        shade.fill(NO_MARKER)
+        for x, y in blocked:
+            surface.blit(shade, (left + x * cell, top + y * cell))
+
+        right, bottom = left + cell * grid.width, top + cell * grid.height
+        for x in range(1, grid.width):
+            px = left + x * cell
+            pygame.draw.line(surface, GRID_LINE, (px, top), (px, bottom - 1))
+        for y in range(1, grid.height):
+            py = top + y * cell
+            pygame.draw.line(surface, GRID_LINE, (left, py), (right - 1, py))
+        pygame.draw.rect(surface, GRID_LINE, (left, top, right - left, bottom - top), 2)
 
     # --- scan results -------------------------------------------------------
 
