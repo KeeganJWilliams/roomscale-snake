@@ -10,9 +10,10 @@ from engine import Direction
 from input import PlayerFound, PlayerLost, Turn
 from telemetry.tutorial_log import write_tutorial_log
 from tutorial import Tutorial
-from tutorial.tutorial import PRACTICE_SPEED
+from tutorial.tutorial import DEFAULT_SPEED, MOVE_CELLS
 
-TICK = 1.0 / PRACTICE_SPEED + 1e-4   # one practice tick
+TICK = 1.0 / DEFAULT_SPEED + 1e-4    # time for the snake to move one cell
+TURN_DEMO = MOVE_CELLS * TICK + 0.5  # long enough to finish showing a turn
 
 
 class FakePad:
@@ -49,7 +50,7 @@ def do_turns(tutorial, pad=None):
         if pad is not None:
             pad.zones = {direction.name.lower()}   # standing on that square
         tutorial.handle(Turn(direction))
-        run(tutorial, 1.5)
+        run(tutorial, TURN_DEMO)
         if pad is not None and tutorial.step.kind == "center":
             pad.zones = {"center"}
             run(tutorial, 0.1)
@@ -62,23 +63,23 @@ def wait_ready(tutorial):
 
 
 def drive_portal(tutorial):
-    """Steer the portal practice: right 4, then up 4 into the ring at (14, 3)."""
+    """Steer the portal practice: right 3, then up 3 into the ring at (13, 4)."""
     wait_ready(tutorial)
-    ticks(tutorial, 4)                       # (14, 7)
+    ticks(tutorial, 3)                       # (13, 7)
     tutorial.handle(Turn(Direction.UP))
-    ticks(tutorial, 4)                       # into the portal, out at (4, 10)
+    ticks(tutorial, 3)                       # into the portal, out at (4, 10)
 
 
 def drive_gate(tutorial):
     """Steer the gate practice: up, right onto the key, down, right through."""
     wait_ready(tutorial)
-    ticks(tutorial, 4)                       # up to (10, 3)
+    ticks(tutorial, 3)                       # up to (10, 4)
     tutorial.handle(Turn(Direction.RIGHT))
-    ticks(tutorial, 2)                       # key at (11, 3), then (12, 3)
+    ticks(tutorial, 3)                       # key at (11, 4), then on to (13, 4)
     tutorial.handle(Turn(Direction.DOWN))
-    ticks(tutorial, 4)                       # (12, 7)
+    ticks(tutorial, 3)                       # (13, 7)
     tutorial.handle(Turn(Direction.RIGHT))
-    ticks(tutorial, 3)                       # through the gate at x=14
+    ticks(tutorial, 2)                       # through the gate at x=14
 
 
 class TestKeyboardTutorial(unittest.TestCase):
@@ -140,7 +141,7 @@ class TestKeyboardTutorial(unittest.TestCase):
     def test_skip_marks_the_run_assisted(self):
         t = Tutorial(20, 15)
         t.skip()
-        run(t, 1.5)
+        run(t, TURN_DEMO)
         self.assertEqual(t.step.direction, Direction.LEFT)
         self.assertTrue(t.records[0].skipped)
         self.assertTrue(t.assisted)
@@ -174,7 +175,7 @@ class TestPadTutorial(unittest.TestCase):
         run(self.t, 0.1)
         self.pad.zones = {"up"}
         self.t.handle(Turn(Direction.UP))
-        run(self.t, 1.5)
+        run(self.t, TURN_DEMO)
         self.assertEqual(self.t.step.kind, "center")
         run(self.t, 2)
         self.assertEqual(self.t.step.kind, "center")   # still standing on UP
@@ -218,7 +219,7 @@ class TestPadTutorial(unittest.TestCase):
         self.assertEqual(self.t.game.snake.head, head)
         self.assertIn("back onto the pad", self.t.hint)
         self.t.handle(PlayerFound())
-        run(self.t, 1.5)
+        run(self.t, TURN_DEMO)
         self.assertEqual(self.t.step.kind, "center")
 
 
@@ -241,7 +242,7 @@ class TestPracticePacing(unittest.TestCase):
         head = self.t.game.snake.head
         run(self.t, 1.9)
         self.assertEqual(self.t.game.snake.head, head)
-        run(self.t, 1.0)
+        run(self.t, 0.3 + TICK)
         self.assertNotEqual(self.t.game.snake.head, head)
         self.assertEqual(self.t.hint, "")
 
@@ -272,7 +273,7 @@ class TestTutorialLog(unittest.TestCase):
         t = Tutorial(20, 15)
         t.handle(Turn(Direction.DOWN))   # wrong
         t.skip()
-        run(t, 1.5)
+        run(t, TURN_DEMO)
         t.abort()
         with tempfile.TemporaryDirectory() as tmp:
             path = write_tutorial_log(t, directory=tmp)

@@ -20,12 +20,12 @@ from input.base import PlayerFound, PlayerLost, Turn
 
 log = logging.getLogger(__name__)
 
-MOVE_CELLS = 3          # cells the snake travels after each taught turn
-MOVE_SPEED = 4.0        # cells per second while showing a turn
-CRUISE_CELLS = 7        # "keep going" step: ~3.5 s of movement...
-CRUISE_SPEED = 2.0
+# The snake moves at the real game's speed throughout (main.py passes
+# --speed), so the practice matches what players will actually play.
+DEFAULT_SPEED = 0.85    # cells per second, when none is given (same as main.py)
+MOVE_CELLS = 2          # cells the snake travels after each taught turn
+CRUISE_CELLS = 4        # "keep going" step: this many cells...
 CRUISE_LINGER = 1.5     # ...then the prompt stays up this long after the snake stops
-PRACTICE_SPEED = 2.0    # slow: stepping is much slower than pressing keys
 READY_SECONDS = 2.0     # practice level shown frozen before it starts (and after a crash)
 PRAISE_SECONDS = 2.0    # "Nice!" pause after a practice goal, to see where the snake ended up
 DONE_SECONDS = 4.0      # how long the finish screen stays up
@@ -109,8 +109,10 @@ class Tutorial:
     """Runs the tutorial. Call handle() with each input Command and
     update(dt) once per frame; draw `game` and `step`."""
 
-    def __init__(self, width=20, height=15, has_pad=False, pad_zones=None):
+    def __init__(self, width=20, height=15, has_pad=False, pad_zones=None,
+                 speed=DEFAULT_SPEED):
         self.width, self.height = width, height
+        self.speed = speed
         self.has_pad = has_pad
         self.pad_zones = pad_zones or (lambda: None)
         min_w, min_h = MIN_PRACTICE_SIZE
@@ -129,7 +131,7 @@ class Tutorial:
         self.lost = False
 
         self.game = self._new_game()
-        self._ticker = Ticker(MOVE_SPEED)
+        self._ticker = Ticker(speed)
         self._moves_left = 0
         self._hold = 0.0        # practice frozen for a moment (get ready, or praise)
         self._done_timer = 0.0
@@ -305,14 +307,10 @@ class Tutorial:
         self._moves_left = 0
         self._hold = 0.0
         self._ticker.reset()
-        if step.kind == "turn":
-            self._ticker.cells_per_second = MOVE_SPEED
-        elif step.kind == "cruise":
-            self._ticker.cells_per_second = CRUISE_SPEED
+        if step.kind == "cruise":
             head_x = self.game.snake.head[0]
             self._moves_left = max(1, min(CRUISE_CELLS, self.width - head_x - 2))
         elif step.kind in ("portal", "gate"):
-            self._ticker.cells_per_second = PRACTICE_SPEED
             self._setup_practice(step.kind)
             self.hint = "Get ready..."
         elif step.kind == "done":
@@ -348,22 +346,22 @@ class Tutorial:
         self._ticker.reset()
         if kind == "portal":
             # Entrance up and to the right, so reaching it takes a turn (on
-            # 20x15: 4 right, 4 up). Exit lower left, far from the entrance,
+            # 20x15: 3 right, 3 up). Exit lower left, far from the entrance,
             # with room ahead whichever way the snake comes out.
-            entry = (min(cx + 4, w - 3), max(1, cy - 4))
+            entry = (min(cx + 3, w - 3), max(1, cy - 3))
             exit_ = (max(1, cx - 6), min(h - 2, cy + 3))
             self.game = self._new_game(Layout(portals=[(entry, exit_)]))
             self.game.events.subscribe(self._on_portal, EventType.PORTAL_USED)
         else:
             # A wall splits the board; its only opening is a 3-cell gate. The
             # snake starts heading UP; the key is up and one cell right, so
-            # grabbing it takes a turn (on 20x15: up 4, right 1), then the
+            # grabbing it takes a turn (on 20x15: up 3, right 1), then the
             # player steers down and right through the gate.
             self._gate_x = min(cx + 4, w - 3)
             gate_rows = range(cy - 1, cy + 2)
             walls = {(self._gate_x, y) for y in range(h) if y not in gate_rows}
             gates = {(self._gate_x, y): 0 for y in gate_rows}
-            layout = Layout(walls=walls, keys={(cx + 1, max(1, cy - 4)): 0}, gates=gates)
+            layout = Layout(walls=walls, keys={(cx + 1, max(1, cy - 3)): 0}, gates=gates)
             self.game = self._new_game(layout, direction=Direction.UP)
         self.game.events.subscribe(self._on_collision, EventType.COLLISION)
 

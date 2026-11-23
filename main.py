@@ -54,10 +54,11 @@ def parse_args():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--cols", type=int, default=20, help="grid width in cells")
     parser.add_argument("--rows", type=int, default=15, help="grid height in cells")
-    parser.add_argument("--speed", type=float, default=0.75,
-                        help="snake speed in cells per second (default 0.75, "
-                             "~1.3s per cell: slow enough that FP2 latency and "
-                             "the debounce still leave time to react)")
+    parser.add_argument("--speed", type=float, default=0.85,
+                        help="snake speed in cells per second (default 0.85, about "
+                             "1.2 s per cell: slow enough that FP2 latency and "
+                             "the debounce still leave time to react). The "
+                             "tutorial uses the same speed")
     parser.add_argument("--fullscreen", action="store_true")
     parser.add_argument("--input", choices=("keyboard", "fp2", "both"),
                         default="keyboard",
@@ -79,13 +80,13 @@ def parse_args():
     return parser.parse_args()
 
 
-def start_tutorial(game, pad):
+def start_tutorial(game, pad, speed):
     from tutorial import Tutorial
 
     log.info("tutorial started (%s)", "FP2 pad" if pad is not None else "keyboard")
     return Tutorial(game.width, game.height, has_pad=pad is not None,
                     pad_zones=(lambda: pad.zone_state().occupied) if pad is not None
-                    else None)
+                    else None, speed=speed)
 
 
 def scan_objects(game, renderer, screen, scanner):
@@ -188,7 +189,7 @@ def main():
         scanner = Scanner(args.camera)
         renderer.placement_grid = True
 
-    tutorial = start_tutorial(game, pad) if args.tutorial else None
+    tutorial = start_tutorial(game, pad, args.speed) if args.tutorial else None
 
     running = True
     try:
@@ -211,7 +212,7 @@ def main():
                         running = False
                     elif event.key == pygame.K_t and game.state in (
                             GameState.READY, GameState.GAME_OVER):
-                        tutorial = start_tutorial(game, pad)
+                        tutorial = start_tutorial(game, pad, args.speed)
                     elif event.key == pygame.K_SPACE and game.state in (
                             GameState.READY, GameState.GAME_OVER):
                         game.start()
