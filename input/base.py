@@ -56,6 +56,18 @@ class PlayerFound:
 Command = Union[Turn, PlayerLost, PlayerFound]
 
 
+@dataclass(frozen=True)
+class PadState:
+    """What the floor pad reads right now, for the Render layer to mirror.
+
+    Display only - the Engine steers on Commands alone. A source that has
+    no pad (the keyboard) simply never provides one.
+    """
+
+    occupied: frozenset = frozenset()
+    lost: bool = False
+
+
 class InputSource(Protocol):
     """What main.py needs from any controller."""
 
