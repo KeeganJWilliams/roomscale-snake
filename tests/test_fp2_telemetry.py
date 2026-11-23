@@ -23,6 +23,9 @@ class TestZoneEventLog(unittest.TestCase):
         self.addCleanup(self.tmp.cleanup)
         self.path = pathlib.Path(self.tmp.name) / "logs" / "zones.csv"
         self.log = ZoneEventLog(ZONES, path=self.path)
+        # Close before the temp dir is deleted (cleanups run last-in, first-out):
+        # Windows refuses to delete a file that's still open.
+        self.addCleanup(self.log.close)
 
     def rows(self):
         self.log.close()

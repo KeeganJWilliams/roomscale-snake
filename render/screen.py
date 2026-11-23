@@ -1,6 +1,9 @@
+import time
+
 import pygame
 
 from engine import GameState
+from objects.calibration import calibration_marker_bitmap, corner_targets
 
 BACKGROUND = (12, 14, 20)
 BORDER = (70, 78, 96)
@@ -24,6 +27,10 @@ KEY_COLORS = [
     (255, 120, 190),  # pink
 ]
 OVERLAY = (0, 0, 0, 160)
+NOTICE_BG = (0, 0, 0, 200)
+WARNING = (255, 200, 90)
+CALIBRATION_BG = (255, 255, 255)
+SCAN_TEXT = (150, 150, 150)
 
 HUD_HEIGHT = 40
 
@@ -40,6 +47,9 @@ class ScreenRenderer:
         self.game = game
         self.font = pygame.font.Font(None, 32)
         self.big_font = pygame.font.Font(None, 64)
+        self.small_font = pygame.font.Font(None, 26)
+        self._notice = None
+        self._marker_cache = {}
 
     def _layout(self, surface):
         grid = self.game.grid
@@ -74,6 +84,7 @@ class ScreenRenderer:
 
         self._draw_hud(surface)
         self._draw_overlay(surface)
+        self._draw_notice(surface)
 
     @staticmethod
     def _color(index, palette):
@@ -136,3 +147,55 @@ class ScreenRenderer:
             label = font.render(line, True, TEXT)
             surface.blit(label, label.get_rect(center=(cx, y)))
             y += 50 if i == 0 else 36
+
+    # --- scan results -------------------------------------------------------
+
+    def show_notice(self, lines, seconds=8.0):
+        """Show a few lines (e.g. scan results) along the bottom for a while."""
+        self._notice = (list(lines), time.monotonic() + seconds)
+
+    def _draw_notice(self, surface):
+        if not self._notice:
+            return
+        lines, expires = self._notice
+        if time.monotonic() > expires:
+            self._notice = None
+            return
+        line_h = 26
+        height = 16 + line_h * len(lines)
+        box = pygame.Surface((surface.get_width(), height), pygame.SRCALPHA)
+        box.fill(NOTICE_BG)
+        top = surface.get_height() - height
+        surface.blit(box, (0, top))
+        for i, line in enumerate(lines):
+            color = WARNING if i > 0 else TEXT
+            surface.blit(self.small_font.render(line, True, color), (12, top + 8 + i * line_h))
+
+    # --- calibration screen -------------------------------------------------
+
+    def draw_calibration(self, surface):
+        """Plain white frame with the four calibration markers in the grid's
+        corners. Shown while the camera scans: white lights the paper markers
+        and no game graphics cover them."""
+        surface.fill(CALIBRATION_BG)
+        cell, left, top = self._layout(surface)
+        grid = self.game.grid
+        for marker_id, (gx, gy, size) in corner_targets(grid.width, grid.height).items():
+            px = max(6, round(size * cell))
+            surface.blit(self._calibration_marker(marker_id, px),
+                         (round(left + gx * cell), round(top + gy * cell)))
+        label = self.font.render("Scanning markers... keep clear of the wall", True,
+                                 SCAN_TEXT)
+        surface.blit(label, label.get_rect(center=(surface.get_width() // 2,
+                                                   top + cell * grid.height // 2)))
+
+    def _calibration_marker(self, marker_id, px):
+        key = (marker_id, px)
+        cache = self._marker_cache
+        if key not in cache:
+            bitmap = calibration_marker_bitmap(marker_id, bit_px=max(1, px // 6))
+            rgb = bitmap[:, :, None].repeat(3, axis=2)
+            # surfarray is (x, y), numpy images are (row, col): transpose.
+            small = pygame.surfarray.make_surface(rgb.transpose(1, 0, 2))
+            cache[key] = pygame.transform.scale(small, (px, px))   # nearest-neighbor
+        return cache[key]

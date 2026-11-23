@@ -56,9 +56,24 @@ class Game:
         self._apply_layout(layout)
         self._reset_round()
 
-    def _reset_round(self):
+    def _start_snake(self):
         start = (self.grid.width // 2, self.grid.height // 2)
-        self.snake = Snake(start, self.start_direction, self.start_length)
+        return Snake(start, self.start_direction, self.start_length)
+
+    def start_cells(self, lead=1):
+        """Cells the snake starts on, plus `lead` cells ahead of its head.
+
+        A Layout must leave these empty (load_layout rejects objects on the
+        snake, and an object right in front of it ends the round at once).
+        """
+        snake = self._start_snake()
+        hx, hy = snake.head
+        d = self.start_direction
+        ahead = [(hx + d.dx * i, hy + d.dy * i) for i in range(1, lead + 1)]
+        return list(snake.body) + ahead
+
+    def _reset_round(self):
+        self.snake = self._start_snake()
         occupied = self.layout.occupied_cells()
         for cell in self.snake.body:
             if not self.grid.in_bounds(cell) or cell in occupied:

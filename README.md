@@ -55,6 +55,32 @@ python3 -m objects.generate_markers --pdf print/markers_3.1in.pdf
 python3 -m objects.generate_markers --pdf out.pdf --size 3.1 --ids 30 31 --copies 4
 ```
 
+### Scanning a level
+
+```
+python main.py --fullscreen --camera 1     # camera index or rtsp:// URL
+```
+
+Stick markers on the wall inside the projected grid, one marker per cell.
+Between rounds press **C**: the game shows a white screen with four
+calibration markers (IDs 0-3) in the grid's corners, the camera grabs ~10
+frames, and the markers it finds become the level. Rules:
+
+- A marker belongs to the cell under its center.
+- Portals: exactly one of each ID in a pair (10/11, 12/13, 14/15).
+- Keys: one per ID. Key 20+n opens every gate 30+n.
+- Gates and walls: as many as you like; three gate-31 markers make a 3-cell gate.
+- Keep markers out of the 2x2 cell blocks in each corner (the calibration
+  markers are projected there) and off the snake's starting cells.
+
+Problems (a portal missing its partner, two markers on one cell, ...) don't
+stop the scan: that marker is skipped and the reason is shown at the bottom
+of the screen. Fix the wall and press C again. The level stays frozen
+during a round and resets keys/gates each round.
+
+At home, a monitor works as the projector: point the camera at the screen
+and hold markers flat against it.
+
 
 
 ## FP2 setup
