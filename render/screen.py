@@ -1,6 +1,9 @@
+import time
+
 import pygame
 
 from engine import GameState
+from objects.calibration import calibration_marker_bitmap, corner_cells, corner_targets
 
 BACKGROUND = (12, 14, 20)
 BORDER = (70, 78, 96)
@@ -24,6 +27,12 @@ KEY_COLORS = [
     (255, 120, 190),  # pink
 ]
 OVERLAY = (0, 0, 0, 160)
+NOTICE_BG = (0, 0, 0, 200)
+WARNING = (255, 200, 90)
+CALIBRATION_BG = (255, 255, 255)
+SCAN_TEXT = (150, 150, 150)
+GRID_LINE = (95, 105, 125)
+NO_MARKER = (200, 60, 60, 90)   # translucent red: corner blocks + snake start
 
 # The on-screen d-pad mirrors the taped floor pad: lit zones are the ones
 # the FP2 currently reports, so a player can see the sensor keeping up.
@@ -85,6 +94,12 @@ class ScreenRenderer:
         self.font = pygame.font.Font(None, 32)
         self.small_font = pygame.font.Font(None, 24)
         self.big_font = pygame.font.Font(None, 64)
+        self.small_font = pygame.font.Font(None, 26)
+        self._notice = None
+        self._marker_cache = {}
+        # Show cell lines and no-marker cells between rounds. main.py turns
+        # this on when a camera is set up for scanning.
+        self.placement_grid = False
 
     def _layout(self, surface):
         grid = self.game.grid
@@ -117,7 +132,8 @@ class ScreenRenderer:
         if panel is not None:
             self._draw_dpad(surface, panel)
         self._draw_hud(surface)
-        self._draw_overlay(surface)
+        self._draw_overlay(surface, cell, left, top)
+        self._draw_notice(surface)
 
     @staticmethod
     def _color(index, palette):
@@ -229,11 +245,12 @@ class ScreenRenderer:
         text = f"Score: {self.game.score}    Best: {self.game.best}"
         surface.blit(self.font.render(text, True, TEXT), (12, 10))
 
-    def _draw_overlay(self, surface):
+    def _draw_overlay(self, surface, cell, left, top):
         state = self.game.state
         if state is GameState.PLAYING:
             return
 
+        between_rounds = state in (GameState.READY, GameState.GAME_OVER)
         if state is GameState.READY:
             lines = ["ROOM-SCALE SNAKE", "Press SPACE to start"]
         elif state is GameState.PAUSED:
@@ -241,10 +258,15 @@ class ScreenRenderer:
         else:
             title = "YOU WIN!" if self.game.won else "GAME OVER"
             lines = [title, f"Score: {self.game.score}", "Press SPACE to play again"]
+        if between_rounds and self.placement_grid:
+            lines.append("Press C to scan markers")
 
         shade = pygame.Surface(surface.get_size(), pygame.SRCALPHA)
         shade.fill(OVERLAY)
         surface.blit(shade, (0, 0))
+        # Drawn on top of the shade so it stays bright enough to place markers by.
+        if between_rounds and self.placement_grid:
+            self._draw_placement_grid(surface, cell, left, top)
 
         cx, cy = surface.get_width() // 2, surface.get_height() // 2
         y = cy - 40 * (len(lines) - 1) // 2
@@ -253,3 +275,76 @@ class ScreenRenderer:
             label = font.render(line, True, TEXT)
             surface.blit(label, label.get_rect(center=(cx, y)))
             y += 50 if i == 0 else 36
+
+    # --- marker placement ---------------------------------------------------
+
+    def _draw_placement_grid(self, surface, cell, left, top):
+        """Cell lines plus shaded no-marker cells, shown between rounds so
+        whoever sets up the level can see which cell a marker will land in."""
+        grid = self.game.grid
+        blocked = corner_cells(grid.width, grid.height) | set(self.game.start_cells())
+        shade = pygame.Surface((cell, cell), pygame.SRCALPHA)
+        shade.fill(NO_MARKER)
+        for x, y in blocked:
+            surface.blit(shade, (left + x * cell, top + y * cell))
+
+        right, bottom = left + cell * grid.width, top + cell * grid.height
+        for x in range(1, grid.width):
+            px = left + x * cell
+            pygame.draw.line(surface, GRID_LINE, (px, top), (px, bottom - 1))
+        for y in range(1, grid.height):
+            py = top + y * cell
+            pygame.draw.line(surface, GRID_LINE, (left, py), (right - 1, py))
+        pygame.draw.rect(surface, GRID_LINE, (left, top, right - left, bottom - top), 2)
+
+    # --- scan results -------------------------------------------------------
+
+    def show_notice(self, lines, seconds=8.0):
+        """Show a few lines (e.g. scan results) along the bottom for a while."""
+        self._notice = (list(lines), time.monotonic() + seconds)
+
+    def _draw_notice(self, surface):
+        if not self._notice:
+            return
+        lines, expires = self._notice
+        if time.monotonic() > expires:
+            self._notice = None
+            return
+        line_h = 26
+        height = 16 + line_h * len(lines)
+        box = pygame.Surface((surface.get_width(), height), pygame.SRCALPHA)
+        box.fill(NOTICE_BG)
+        top = surface.get_height() - height
+        surface.blit(box, (0, top))
+        for i, line in enumerate(lines):
+            color = WARNING if i > 0 else TEXT
+            surface.blit(self.small_font.render(line, True, color), (12, top + 8 + i * line_h))
+
+    # --- calibration screen -------------------------------------------------
+
+    def draw_calibration(self, surface):
+        """Plain white frame with the four calibration markers in the grid's
+        corners. Shown while the camera scans: white lights the paper markers
+        and no game graphics cover them."""
+        surface.fill(CALIBRATION_BG)
+        cell, left, top = self._layout(surface)
+        grid = self.game.grid
+        for marker_id, (gx, gy, size) in corner_targets(grid.width, grid.height).items():
+            px = max(6, round(size * cell))
+            surface.blit(self._calibration_marker(marker_id, px),
+                         (round(left + gx * cell), round(top + gy * cell)))
+        label = self.font.render("Scanning markers... keep clear of the wall", True,
+                                 SCAN_TEXT)
+        surface.blit(label, label.get_rect(center=(surface.get_width() // 2,
+                                                   top + cell * grid.height // 2)))
+
+    def _calibration_marker(self, marker_id, px):
+        key = (marker_id, px)
+        cache = self._marker_cache
+        if key not in cache:
+            bitmap = calibration_marker_bitmap(marker_id, bit_px=max(1, px // 6))
+            rgb = bitmap[:, :, None].repeat(3, axis=2)
+            # surfarray is (x, y), numpy images are (row, col): transpose.
+            small = pygame.surfarray.make_surface(rgb.transpose(1, 0, 2))
+            cache[key] = pygame.transform.scale(small, (px, px))   # nearest-neighbor
+        return cache[key]

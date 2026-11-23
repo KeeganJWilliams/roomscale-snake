@@ -65,6 +65,43 @@ class TestDetector(unittest.TestCase):
         self.assertEqual(self.detector.detect(np.full((200, 200), 255, np.uint8)), [])
 
 
+class TestPrintablePdf(unittest.TestCase):
+    def test_default_kit_pages_detect_every_marker(self):
+        from collections import Counter
+
+        from objects.generate_markers import DEFAULT_KIT, expand, render_pages
+
+        ids = expand(DEFAULT_KIT)
+        pages = render_pages(ids, size_in=3.1)
+        detector = MarkerDetector()
+        seen = Counter()
+        for page in pages:
+            frame = np.array(page.convert("L"))
+            seen.update(d.id for d in detector.detect(frame))
+        self.assertEqual(seen, Counter(ids))
+        self.assertEqual(seen[30], 3)   # gates come 3 to an ID
+
+    def test_pages_are_letter_size_with_six_pieces(self):
+        from objects.generate_markers import DPI, page_grid, render_pages
+
+        self.assertEqual(page_grid(3.1), (2, 3))
+        pages = render_pages(list(range(10, 17)), size_in=3.1)
+        self.assertEqual(len(pages), 2)
+        self.assertEqual(pages[0].size, (int(8.5 * DPI), int(11 * DPI)))
+
+    def test_piece_is_the_requested_size(self):
+        from objects.generate_markers import DPI, PIECE_BITS
+
+        bit_px = round(3.1 * DPI / PIECE_BITS)
+        self.assertAlmostEqual(bit_px * PIECE_BITS / DPI, 3.1, delta=0.01)
+
+    def test_too_big_to_fit_is_rejected(self):
+        from objects.generate_markers import page_grid
+
+        with self.assertRaises(ValueError):
+            page_grid(9.0)
+
+
 class TestCameraSource(unittest.TestCase):
     def test_digits_become_index(self):
         self.assertEqual(parse_source("1"), 1)

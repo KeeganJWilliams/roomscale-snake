@@ -1,7 +1,8 @@
 """Room-Scale Snake.
 
 Controls: arrow keys / WASD steer, SPACE starts or restarts,
-P pauses, F11 toggles fullscreen, ESC quits.
+P pauses, F11 toggles fullscreen, ESC quits. With --camera, C scans the
+wall's ArUco markers between rounds and loads them as the level.
 
 Steering can come from the keyboard, from the Aqara FP2 floor d-pad, or
 both at once:
@@ -68,7 +69,33 @@ def parse_args():
                         help="skip the FP2 zone-event CSV in telemetry/logs/")
     parser.add_argument("--demo-objects", action="store_true",
                         help="add sample portals, keys, and gates (needs at least 20x15)")
+    parser.add_argument("--camera", metavar="SOURCE",
+                        help="camera index or RTSP URL for scanning markers; "
+                             "press C between rounds to scan")
     return parser.parse_args()
+
+
+def scan_objects(game, renderer, screen, scanner):
+    """Show the calibration screen, scan the wall, and load what was found.
+    Only called between rounds, so the map stays frozen during play."""
+    from objects.layout_builder import summarize
+    from objects.scanner import ScanError
+
+    renderer.draw_calibration(screen)
+    pygame.display.flip()
+    try:
+        result = scanner.scan(game.width, game.height, reserved=game.start_cells(),
+                              tick=pygame.event.pump)
+    except ScanError as exc:
+        log.warning("scan failed: %s", exc)
+        renderer.show_notice([f"Scan failed: {exc}"])
+        return
+    game.load_layout(result.layout)
+    log.info("scan loaded %s (calibration error %.2f cells)",
+             summarize(result.layout), result.calibration.rms_error_cells)
+    for warning in result.warnings:
+        log.warning("scan: %s", warning)
+    renderer.show_notice([f"Scanned: {summarize(result.layout)}"] + result.warnings)
 
 
 def build_fp2_source(args):
@@ -137,6 +164,13 @@ def main():
     pad_source = next((s for s in sources if hasattr(s, "zone_state")), None)
     renderer = ScreenRenderer(game, pad_state=pad_source.zone_state if pad_source
                               else None)
+    renderer = ScreenRenderer(game)
+    scanner = None
+    if args.camera is not None:
+        from objects.scanner import Scanner
+
+        scanner = Scanner(args.camera)
+        renderer.placement_grid = True
 
     running = True
     try:
@@ -159,6 +193,14 @@ def main():
                             game.resume()
                     elif event.key == pygame.K_F11:
                         pygame.display.toggle_fullscreen()
+                    elif event.key == pygame.K_c and game.state in (
+                            GameState.READY, GameState.GAME_OVER):
+                        if scanner is None:
+                            renderer.show_notice(
+                                ["No camera: start with --camera N to scan markers"])
+                        else:
+                            scan_objects(game, renderer, screen, scanner)
+                            clock.tick()   # don't count the scan as frame time
                 if keyboard is not None:
                     keyboard.handle_event(event)
 
@@ -179,6 +221,8 @@ def main():
     finally:
         for source in sources:
             source.close()
+        if scanner is not None:
+            scanner.close()
         pygame.quit()
     return 0
 
