@@ -22,11 +22,12 @@ log = logging.getLogger(__name__)
 
 MOVE_CELLS = 3          # cells the snake travels after each taught turn
 MOVE_SPEED = 4.0        # cells per second while showing a turn
-CRUISE_CELLS = 5
-CRUISE_SPEED = 3.0
-PRACTICE_SPEED = 2.5    # slow: stepping is much slower than pressing keys
-PRAISE_SECONDS = 1.0    # "Nice!" pause after a practice goal
-RETRY_SECONDS = 1.0     # pause on a fresh attempt after a crash, to read the hint
+CRUISE_CELLS = 7        # "keep going" step: ~3.5 s of movement...
+CRUISE_SPEED = 2.0
+CRUISE_LINGER = 1.5     # ...then the prompt stays up this long after the snake stops
+PRACTICE_SPEED = 2.0    # slow: stepping is much slower than pressing keys
+READY_SECONDS = 2.0     # practice level shown frozen before it starts (and after a crash)
+PRAISE_SECONDS = 2.0    # "Nice!" pause after a practice goal, to see where the snake ended up
 DONE_SECONDS = 4.0      # how long the finish screen stays up
 
 MIN_PRACTICE_SIZE = (16, 11)   # smallest grid the practice levels fit on
@@ -96,8 +97,8 @@ def build_steps(has_pad, practice=True):
         steps.append(Step("cruise", "cruise", "Let go: the snake keeps going",
                           "It only turns when you tell it to"))
     if practice:
-        steps.append(Step("portal", "portal", "Rings are PORTALS",
-                          "Go in one and you come out of the other"))
+        steps.append(Step("portal", "portal", "Steer into the PORTAL (the ring)",
+                          "You come out of the other one"))
         steps.append(Step("gate", "gate", "Grab the KEY, then go through its GATE",
                           "A locked gate is a wall. Its key opens it"))
     steps.append(Step("done", "done", "You're ready!"))
@@ -130,7 +131,7 @@ class Tutorial:
         self.game = self._new_game()
         self._ticker = Ticker(MOVE_SPEED)
         self._moves_left = 0
-        self._hold = 0.0        # practice frozen for a moment (praise or retry)
+        self._hold = 0.0        # practice frozen for a moment (get ready, or praise)
         self._done_timer = 0.0
         self._goal = False
         self._advance()
@@ -180,7 +181,7 @@ class Tutorial:
             else:
                 self._record.wrong_turns += 1
                 self.hint = f"That was {direction.name}. {step.title}"
-        elif step.kind in ("portal", "gate") and not self._hold:
+        elif step.kind in ("portal", "gate") and not self._goal:
             self.game.set_direction(direction)
 
     def skip(self):
@@ -232,7 +233,11 @@ class Tutorial:
         elif step.kind == "turn":
             self._run_moves(dt)
         elif step.kind == "cruise":
-            if on_center:
+            if self._hold:
+                self._hold = max(0.0, self._hold - dt)
+                if not self._hold:
+                    self._complete()
+            elif on_center:
                 self.hint = ""
                 self._run_moves(dt)
             else:
@@ -248,14 +253,20 @@ class Tutorial:
             self.game.step()
             self._moves_left -= 1
             if not self._moves_left:
-                self._complete()
+                if self.step.kind == "cruise":
+                    self._hold = CRUISE_LINGER   # leave time to read the prompt
+                else:
+                    self._complete()
                 return
 
     def _run_practice(self, dt):
         if self._hold:
             self._hold = max(0.0, self._hold - dt)
-            if not self._hold and self._goal:
-                self._complete()
+            if not self._hold:
+                if self._goal:
+                    self._complete()
+                else:
+                    self.hint = ""   # "Get ready..." / crash hint has been read
             return
         for _ in range(self._ticker.update(dt)):
             self.game.step()
@@ -270,7 +281,6 @@ class Tutorial:
                 self.hint = ("That gate is locked. Grab the KEY first!"
                              if self._crash == "gate" else "Ouch! Try again.")
                 self._setup_practice(self.step.kind)
-                self._hold = RETRY_SECONDS
                 return
 
     # --- steps ---------------------------------------------------------------
@@ -293,6 +303,7 @@ class Tutorial:
         self.records.append(self._record)
         self.hint = ""
         self._moves_left = 0
+        self._hold = 0.0
         self._ticker.reset()
         if step.kind == "turn":
             self._ticker.cells_per_second = MOVE_SPEED
@@ -303,6 +314,7 @@ class Tutorial:
         elif step.kind in ("portal", "gate"):
             self._ticker.cells_per_second = PRACTICE_SPEED
             self._setup_practice(step.kind)
+            self.hint = "Get ready..."
         elif step.kind == "done":
             self.completion_seconds = self.elapsed
             minutes, seconds = divmod(int(round(self.elapsed)), 60)
@@ -332,20 +344,26 @@ class Tutorial:
         cx, cy = w // 2, h // 2
         self._goal = False
         self._crash = None
+        self._hold = READY_SECONDS   # show the level frozen before it starts
         self._ticker.reset()
         if kind == "portal":
-            # Entrance straight ahead; the exit leaves plenty of room to react.
-            entry, exit_ = (min(cx + 5, w - 2), cy), (max(1, cx - 6), max(1, cy - 4))
+            # Entrance up and to the right, so reaching it takes a turn (on
+            # 20x15: 4 right, 4 up). Exit lower left, far from the entrance,
+            # with room ahead whichever way the snake comes out.
+            entry = (min(cx + 4, w - 3), max(1, cy - 4))
+            exit_ = (max(1, cx - 6), min(h - 2, cy + 3))
             self.game = self._new_game(Layout(portals=[(entry, exit_)]))
             self.game.events.subscribe(self._on_portal, EventType.PORTAL_USED)
         else:
             # A wall splits the board; its only opening is a 3-cell gate. The
-            # snake starts heading UP at its key, then has to steer through.
+            # snake starts heading UP; the key is up and one cell right, so
+            # grabbing it takes a turn (on 20x15: up 4, right 1), then the
+            # player steers down and right through the gate.
             self._gate_x = min(cx + 4, w - 3)
             gate_rows = range(cy - 1, cy + 2)
             walls = {(self._gate_x, y) for y in range(h) if y not in gate_rows}
             gates = {(self._gate_x, y): 0 for y in gate_rows}
-            layout = Layout(walls=walls, keys={(cx, cy - 4): 0}, gates=gates)
+            layout = Layout(walls=walls, keys={(cx + 1, max(1, cy - 4)): 0}, gates=gates)
             self.game = self._new_game(layout, direction=Direction.UP)
         self.game.events.subscribe(self._on_collision, EventType.COLLISION)
 

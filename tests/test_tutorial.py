@@ -55,13 +55,28 @@ def do_turns(tutorial, pad=None):
             run(tutorial, 0.1)
 
 
+def wait_ready(tutorial):
+    """Let the practice level's "Get ready..." pause run out."""
+    while tutorial._hold:
+        tutorial.update(0.05)
+
+
+def drive_portal(tutorial):
+    """Steer the portal practice: right 4, then up 4 into the ring at (14, 3)."""
+    wait_ready(tutorial)
+    ticks(tutorial, 4)                       # (14, 7)
+    tutorial.handle(Turn(Direction.UP))
+    ticks(tutorial, 4)                       # into the portal, out at (4, 10)
+
+
 def drive_gate(tutorial):
-    """Steer the gate practice: up past the key, right, down, right through."""
-    ticks(tutorial, 5)                       # up to (10, 2), key collected on the way
+    """Steer the gate practice: up, right onto the key, down, right through."""
+    wait_ready(tutorial)
+    ticks(tutorial, 4)                       # up to (10, 3)
     tutorial.handle(Turn(Direction.RIGHT))
-    ticks(tutorial, 2)                       # (12, 2)
+    ticks(tutorial, 2)                       # key at (11, 3), then (12, 3)
     tutorial.handle(Turn(Direction.DOWN))
-    ticks(tutorial, 5)                       # (12, 7)
+    ticks(tutorial, 4)                       # (12, 7)
     tutorial.handle(Turn(Direction.RIGHT))
     ticks(tutorial, 3)                       # through the gate at x=14
 
@@ -75,14 +90,24 @@ class TestKeyboardTutorial(unittest.TestCase):
         do_turns(t)
         self.assertEqual(t.step.kind, "cruise")
         run_until(t, "portal")
-        run_until(t, "gate")                 # the portal is straight ahead
+        self.assertEqual(t.hint, "Get ready...")
+        drive_portal(t)
+        run_until(t, "gate")
         drive_gate(t)
-        run(t, 1.5)                          # "Nice!" pause
+        run(t, 2.5)                          # "Nice!" pause
         self.assertEqual(t.step.kind, "done")
         self.assertIsNotNone(t.completion_seconds)
         run(t, 5)
         self.assertTrue(t.finished)
         self.assertFalse(t.assisted)
+
+    def test_keep_going_step_stays_up_long_enough_to_read(self):
+        t = Tutorial(20, 15)
+        do_turns(t)
+        self.assertEqual(t.step.kind, "cruise")
+        run_until(t, "portal")
+        cruise = next(r for r in t.records if r.name == "cruise")
+        self.assertGreaterEqual(cruise.seconds, 4.5)
 
     def test_wrong_turn_is_counted_and_hinted(self):
         t = Tutorial(20, 15)
@@ -104,6 +129,7 @@ class TestKeyboardTutorial(unittest.TestCase):
             t.skip()
             while t.step.kind == "turn" and t._moves_left:
                 t.update(0.05)
+        wait_ready(t)
         t.handle(Turn(Direction.RIGHT))     # straight at the locked gate
         ticks(t, 5)
         self.assertEqual(t.step.kind, "gate")
@@ -174,9 +200,10 @@ class TestPadTutorial(unittest.TestCase):
         self.t.handle(PlayerFound())
         self.assertEqual(self.t.step.kind, "portal")
 
+        drive_portal(self.t)
         run_until(self.t, "gate")
         drive_gate(self.t)
-        run(self.t, 1.5)
+        run(self.t, 2.5)
         self.assertEqual(self.t.step.kind, "done")
         self.assertFalse(self.t.assisted)
 
@@ -193,6 +220,51 @@ class TestPadTutorial(unittest.TestCase):
         self.t.handle(PlayerFound())
         run(self.t, 1.5)
         self.assertEqual(self.t.step.kind, "center")
+
+
+class TestPracticePacing(unittest.TestCase):
+    def setUp(self):
+        self.t = Tutorial(20, 15)
+        while self.t.step.kind != "portal":
+            self.t.skip()
+            while self.t.step.kind == "turn" and self.t._moves_left:
+                self.t.update(0.05)
+
+    def test_portal_takes_a_turn_to_reach(self):
+        (entry, exit_), = self.t.game.layout.portals
+        head = self.t.game.snake.head
+        self.assertNotEqual(entry[1], head[1], "entrance shouldn't be straight ahead")
+        self.assertGreater(entry[0], head[0])
+        self.assertLess(entry[1], head[1])
+
+    def test_level_waits_before_moving(self):
+        head = self.t.game.snake.head
+        run(self.t, 1.9)
+        self.assertEqual(self.t.game.snake.head, head)
+        run(self.t, 1.0)
+        self.assertNotEqual(self.t.game.snake.head, head)
+        self.assertEqual(self.t.hint, "")
+
+    def test_key_takes_a_turn_to_reach(self):
+        self.t.skip()                        # past the portal to the gate level
+        (key, _), = self.t.game.keys.items()
+        head = self.t.game.snake.head        # heading UP
+        self.assertNotEqual(key[0], head[0], "key shouldn't be straight ahead")
+        self.assertLess(key[1], head[1])
+
+    def test_going_straight_up_misses_the_key(self):
+        self.t.skip()
+        wait_ready(self.t)
+        ticks(self.t, 8)                     # into the top wall
+        self.assertEqual(self.t.step.kind, "gate")
+        self.assertEqual(self.t.records[-1].retries, 1)
+        self.assertTrue(self.t.game.keys, "key still there on the fresh attempt")
+
+    def test_going_straight_misses_the_portal(self):
+        wait_ready(self.t)
+        ticks(self.t, 12)                    # into the right wall
+        self.assertEqual(self.t.step.kind, "portal")
+        self.assertEqual(self.t.records[-1].retries, 1)
 
 
 class TestTutorialLog(unittest.TestCase):
