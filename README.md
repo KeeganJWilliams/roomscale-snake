@@ -1,6 +1,6 @@
 # roomscale-snake
 
-Snake projected onto the floor of the Georgia Tech Aware Home. The player
+Snake projected onto the wall of the Georgia Tech Aware Home. The player
 steers by stepping onto a taped 3x3 d-pad; an **Aqara FP2** mmWave presence
 sensor reports which zone they are standing in.
 
