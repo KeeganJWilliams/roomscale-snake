@@ -29,6 +29,10 @@ from input.keyboard import KeyboardInput
 from render.screen import ScreenRenderer
 
 FPS = 60
+# Wider than the 20x15 play area needs, so the d-pad has dead space to sit
+# in. The play area itself is unchanged: at 1280x760 the cell size is still
+# 48px (height-limited), exactly as it was in a 960x760 window.
+WINDOW_SIZE = (1280, 760)
 
 log = logging.getLogger("main")
 
@@ -47,8 +51,10 @@ def parse_args():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--cols", type=int, default=20, help="grid width in cells")
     parser.add_argument("--rows", type=int, default=15, help="grid height in cells")
-    parser.add_argument("--speed", type=float, default=3.0,
-                        help="snake speed in cells per second (default 3)")
+    parser.add_argument("--speed", type=float, default=0.75,
+                        help="snake speed in cells per second (default 0.75, "
+                             "~1.3s per cell: slow enough that FP2 latency and "
+                             "the debounce still leave time to react)")
     parser.add_argument("--fullscreen", action="store_true")
     parser.add_argument("--input", choices=("keyboard", "fp2", "both"),
                         default="keyboard",
@@ -121,13 +127,16 @@ def main():
     pygame.init()
     pygame.display.set_caption("Room-Scale Snake")
     flags = pygame.FULLSCREEN if args.fullscreen else pygame.RESIZABLE
-    screen = pygame.display.set_mode((960, 760), flags)
+    screen = pygame.display.set_mode(WINDOW_SIZE, flags)
     clock = pygame.time.Clock()
 
     layout = DEMO_LAYOUT if args.demo_objects else None
     game = Game(width=args.cols, height=args.rows, layout=layout)
     ticker = Ticker(cells_per_second=args.speed)
-    renderer = ScreenRenderer(game)
+    # Let the renderer mirror the floor pad when a sensor is driving it.
+    pad_source = next((s for s in sources if hasattr(s, "zone_state")), None)
+    renderer = ScreenRenderer(game, pad_state=pad_source.zone_state if pad_source
+                              else None)
 
     running = True
     try:
