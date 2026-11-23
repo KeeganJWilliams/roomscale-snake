@@ -32,6 +32,12 @@ WARNING = (255, 200, 90)
 CALIBRATION_BG = (255, 255, 255)
 SCAN_TEXT = (150, 150, 150)
 GRID_LINE = (95, 105, 125)
+TUTORIAL_BAND = 104   # height of the prompt band at the top
+PAD_CELL = 26         # one square of the d-pad diagram
+PAD_IDLE = (90, 98, 115)
+# (column, row) of each FP2 zone in the 3x3 d-pad diagram. Corners are dead.
+PAD_LAYOUT = {"up": (1, 0), "left": (0, 1), "center": (1, 1),
+              "right": (2, 1), "down": (1, 2)}
 NO_MARKER = (200, 60, 60, 90)   # translucent red: corner blocks + snake start
 
 HUD_HEIGHT = 40
@@ -50,6 +56,8 @@ class ScreenRenderer:
         self.font = pygame.font.Font(None, 32)
         self.big_font = pygame.font.Font(None, 64)
         self.small_font = pygame.font.Font(None, 26)
+        self.tiny_font = pygame.font.Font(None, 20)
+        self.prompt_font = pygame.font.Font(None, 48)
         self._notice = None
         self._marker_cache = {}
         # Show cell lines and no-marker cells between rounds. main.py turns
@@ -64,7 +72,7 @@ class ScreenRenderer:
         top = HUD_HEIGHT + (height - HUD_HEIGHT - cell * grid.height) // 2
         return cell, left, top
 
-    def draw(self, surface):
+    def draw(self, surface, hud=True):
         surface.fill(BACKGROUND)
         cell, left, top = self._layout(surface)
 
@@ -87,7 +95,8 @@ class ScreenRenderer:
             color = SNAKE_HEAD if i == 0 else SNAKE_BODY
             pygame.draw.rect(surface, color, rect(x, y, inset=1), border_radius=cell // 5)
 
-        self._draw_hud(surface)
+        if hud:
+            self._draw_hud(surface)
         self._draw_overlay(surface, cell, left, top)
         self._draw_notice(surface)
 
@@ -141,6 +150,8 @@ class ScreenRenderer:
         else:
             title = "YOU WIN!" if self.game.won else "GAME OVER"
             lines = [title, f"Score: {self.game.score}", "Press SPACE to play again"]
+        if state is GameState.READY:
+            lines.append("Press T for the tutorial")
         if between_rounds and self.placement_grid:
             lines.append("Press C to scan markers")
 
@@ -158,6 +169,56 @@ class ScreenRenderer:
             label = font.render(line, True, TEXT)
             surface.blit(label, label.get_rect(center=(cx, y)))
             y += 50 if i == 0 else 36
+
+    # --- tutorial -------------------------------------------------------------
+
+    def draw_tutorial(self, surface, tutorial, pad_zones=None):
+        """Draw the tutorial: its board, then a prompt band across the top
+        and, when steering with the pad, a live d-pad diagram."""
+        main_game, self.game = self.game, tutorial.game
+        try:
+            self.draw(surface, hud=False)
+        finally:
+            self.game = main_game
+
+        step = tutorial.step
+        width = surface.get_width()
+        band = pygame.Surface((width, TUTORIAL_BAND), pygame.SRCALPHA)
+        band.fill(NOTICE_BG)
+        surface.blit(band, (0, 0))
+
+        number, total = tutorial.progress
+        if step.kind != "done":
+            surface.blit(self.small_font.render(f"Tutorial {number}/{total}    "
+                                                "N = skip step, ESC = leave", True,
+                                                SCAN_TEXT), (12, 8))
+        title = self.prompt_font.render(step.title, True, TEXT)
+        surface.blit(title, title.get_rect(midtop=(width // 2, 30)))
+        if step.subtitle:
+            sub = self.font.render(step.subtitle, True, SCAN_TEXT)
+            surface.blit(sub, sub.get_rect(midtop=(width // 2, 74)))
+        if tutorial.hint:
+            hint = self.font.render(tutorial.hint, True, WARNING)
+            surface.blit(hint, hint.get_rect(midtop=(width // 2, TUTORIAL_BAND + 8)))
+
+        if pad_zones is not None:
+            self.draw_pad(surface, pad_zones, target=step.target_zone,
+                          origin=(width - 3 * PAD_CELL - 16, 26))
+
+    def draw_pad(self, surface, zones, target=None, origin=(0, 0)):
+        """3x3 d-pad diagram: occupied zones lit, the zone to step into outlined.
+        'wall' is printed on top because stepping toward the wall is UP."""
+        ox, oy = origin
+        label = self.tiny_font.render("wall", True, SCAN_TEXT)
+        surface.blit(label, label.get_rect(midbottom=(ox + 1.5 * PAD_CELL, oy - 1)))
+        for name, (col, row) in PAD_LAYOUT.items():
+            r = pygame.Rect(ox + col * PAD_CELL, oy + row * PAD_CELL, PAD_CELL - 3, PAD_CELL - 3)
+            if name in zones:
+                pygame.draw.rect(surface, SNAKE_HEAD, r)
+            else:
+                pygame.draw.rect(surface, PAD_IDLE, r, 1)
+            if name == target:
+                pygame.draw.rect(surface, WARNING, r.inflate(4, 4), 2)
 
     # --- marker placement ---------------------------------------------------
 

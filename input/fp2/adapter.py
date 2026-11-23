@@ -87,6 +87,12 @@ class Fp2Input:
             self.telemetry.record(events, commands)
         return commands
 
+    def pad_zones(self):
+        """Names of the d-pad zones someone is standing in right now (e.g.
+        {"center"}), as of the last poll(). For the tutorial and the pad
+        diagram; steering itself only uses Commands."""
+        return frozenset(self.steering.occupied)
+
     def close(self):
         self._stop.set()
         if self._thread is not None:

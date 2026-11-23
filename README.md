@@ -25,6 +25,16 @@ Keyboard: arrow keys / WASD steer, SPACE starts or restarts, P pauses,
 F11 fullscreen, ESC quits. `--input both` keeps the keyboard live next to
 the sensor, which is what facilitators want during testing.
 
+Tutorial: press **T** on the start screen, or start with `--tutorial`. It
+teaches the d-pad one step at a time (forward = UP, back to center after a
+turn, stepping off pauses), then a portal and a key/gate practice level.
+Each step waits for the player; crashes just restart the practice. N skips
+a step (logged as facilitator help), ESC leaves. With the FP2 it shows a
+live d-pad diagram; with the keyboard alone the pad-only steps are left
+out. Each run is logged to `telemetry/logs/tutorial_<timestamp>.csv`
+(time per step, wrong turns, retries, skips) for the user study.
+`--show-pad` shows the same d-pad diagram during normal play.
+
 Layout: `engine/` (grid, tick loop, snake, collisions, game states),
 `input/` (keyboard + FP2), `render/` (pygame drawing, homography later),
 `objects/` (ArUco), `ambient/` (Home Assistant events), `telemetry/`

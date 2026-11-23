@@ -1,7 +1,8 @@
 """Room-Scale Snake.
 
 Controls: arrow keys / WASD steer, SPACE starts or restarts,
-P pauses, F11 toggles fullscreen, ESC quits. With --camera, C scans the
+P pauses, F11 toggles fullscreen, T starts the tutorial (N skips a step,
+ESC leaves it), ESC quits. With --camera, C scans the
 wall's ArUco markers between rounds and loads them as the level.
 
 Steering can come from the keyboard, from the Aqara FP2 floor d-pad, or
@@ -27,7 +28,8 @@ import pygame
 from engine import Game, GameState, Layout, Ticker
 from input import PlayerFound, PlayerLost, Turn
 from input.keyboard import KeyboardInput
-from render.screen import ScreenRenderer
+from render.screen import PAD_CELL, ScreenRenderer
+from telemetry.tutorial_log import write_tutorial_log
 
 FPS = 60
 
@@ -66,7 +68,20 @@ def parse_args():
     parser.add_argument("--camera", metavar="SOURCE",
                         help="camera index or RTSP URL for scanning markers; "
                              "press C between rounds to scan")
+    parser.add_argument("--tutorial", action="store_true",
+                        help="start in the tutorial (it's also on T between rounds)")
+    parser.add_argument("--show-pad", action="store_true",
+                        help="show a live d-pad diagram in the corner (FP2 only), "
+                             "for checking the zones")
     return parser.parse_args()
+
+
+def start_tutorial(game, pad):
+    from tutorial import Tutorial
+
+    log.info("tutorial started (%s)", "FP2 pad" if pad is not None else "keyboard")
+    return Tutorial(game.width, game.height, has_pad=pad is not None,
+                    pad_zones=pad.pad_zones if pad is not None else None)
 
 
 def scan_objects(game, renderer, screen, scanner):
@@ -162,6 +177,11 @@ def main():
         scanner = Scanner(args.camera)
         renderer.placement_grid = True
 
+    # The FP2 (if any) also reports which pad squares are occupied, which the
+    # tutorial and the --show-pad diagram use. The keyboard has no pad.
+    pad = next((s for s in sources if hasattr(s, "pad_zones")), None)
+    tutorial = start_tutorial(game, pad) if args.tutorial else None
+
     running = True
     try:
         while running:
@@ -170,9 +190,20 @@ def main():
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
+                elif event.type == pygame.KEYDOWN and tutorial is not None:
+                    # Tutorial keys: ESC leaves it, N skips a step (facilitator).
+                    if event.key == pygame.K_ESCAPE:
+                        tutorial.abort()
+                    elif event.key == pygame.K_n:
+                        tutorial.skip()
+                    elif event.key == pygame.K_F11:
+                        pygame.display.toggle_fullscreen()
                 elif event.type == pygame.KEYDOWN:
                     if event.key == pygame.K_ESCAPE:
                         running = False
+                    elif event.key == pygame.K_t and game.state in (
+                            GameState.READY, GameState.GAME_OVER):
+                        tutorial = start_tutorial(game, pad)
                     elif event.key == pygame.K_SPACE and game.state in (
                             GameState.READY, GameState.GAME_OVER):
                         game.start()
@@ -194,9 +225,25 @@ def main():
                 if keyboard is not None:
                     keyboard.handle_event(event)
 
-            for source in sources:
-                for command in source.poll():
-                    apply_command(game, command)
+            commands = [c for source in sources for c in source.poll()]
+
+            if tutorial is not None:
+                for command in commands:
+                    tutorial.handle(command)
+                tutorial.update(dt)
+                if tutorial.finished:
+                    if not args.no_telemetry:
+                        write_tutorial_log(tutorial)
+                    tutorial = None
+                    ticker.reset()
+                else:
+                    renderer.draw_tutorial(screen, tutorial,
+                                           pad.pad_zones() if pad is not None else None)
+                    pygame.display.flip()
+                    continue
+
+            for command in commands:
+                apply_command(game, command)
 
             if game.state is GameState.PLAYING:
                 for _ in range(ticker.update(dt)):
@@ -207,6 +254,9 @@ def main():
                 ticker.reset()
 
             renderer.draw(screen)
+            if args.show_pad and pad is not None:
+                renderer.draw_pad(screen, pad.pad_zones(),
+                                  origin=(screen.get_width() - 3 * PAD_CELL - 16, 22))
             pygame.display.flip()
     finally:
         for source in sources:
