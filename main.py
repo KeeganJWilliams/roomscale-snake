@@ -28,10 +28,14 @@ import pygame
 from engine import Game, GameState, Layout, Ticker
 from input import PlayerFound, PlayerLost, Turn
 from input.keyboard import KeyboardInput
-from render.screen import PAD_CELL, ScreenRenderer
+from render.screen import ScreenRenderer
 from telemetry.tutorial_log import write_tutorial_log
 
 FPS = 60
+# Wider than the 20x15 play area needs, so the d-pad has dead space to sit
+# in. The play area itself is unchanged: at 1280x760 the cell size is still
+# 48px (height-limited), exactly as it was in a 960x760 window.
+WINDOW_SIZE = (1280, 760)
 
 log = logging.getLogger("main")
 
@@ -50,8 +54,10 @@ def parse_args():
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--cols", type=int, default=20, help="grid width in cells")
     parser.add_argument("--rows", type=int, default=15, help="grid height in cells")
-    parser.add_argument("--speed", type=float, default=3.0,
-                        help="snake speed in cells per second (default 3)")
+    parser.add_argument("--speed", type=float, default=0.75,
+                        help="snake speed in cells per second (default 0.75, "
+                             "~1.3s per cell: slow enough that FP2 latency and "
+                             "the debounce still leave time to react)")
     parser.add_argument("--fullscreen", action="store_true")
     parser.add_argument("--input", choices=("keyboard", "fp2", "both"),
                         default="keyboard",
@@ -70,9 +76,6 @@ def parse_args():
                              "press C between rounds to scan")
     parser.add_argument("--tutorial", action="store_true",
                         help="start in the tutorial (it's also on T between rounds)")
-    parser.add_argument("--show-pad", action="store_true",
-                        help="show a live d-pad diagram in the corner (FP2 only), "
-                             "for checking the zones")
     return parser.parse_args()
 
 
@@ -81,7 +84,8 @@ def start_tutorial(game, pad):
 
     log.info("tutorial started (%s)", "FP2 pad" if pad is not None else "keyboard")
     return Tutorial(game.width, game.height, has_pad=pad is not None,
-                    pad_zones=pad.pad_zones if pad is not None else None)
+                    pad_zones=(lambda: pad.zone_state().occupied) if pad is not None
+                    else None)
 
 
 def scan_objects(game, renderer, screen, scanner):
@@ -163,13 +167,20 @@ def main():
     pygame.init()
     pygame.display.set_caption("Room-Scale Snake")
     flags = pygame.FULLSCREEN if args.fullscreen else pygame.RESIZABLE
-    screen = pygame.display.set_mode((960, 760), flags)
+    screen = pygame.display.set_mode(WINDOW_SIZE, flags)
     clock = pygame.time.Clock()
 
     layout = DEMO_LAYOUT if args.demo_objects else None
     game = Game(width=args.cols, height=args.rows, layout=layout)
     ticker = Ticker(cells_per_second=args.speed)
-    renderer = ScreenRenderer(game)
+    # The FP2 (if any) reports which pad squares are occupied: the d-pad
+    # panel mirrors it and the tutorial uses it. The keyboard has no pad.
+    # `pad` is the floor pad itself (the FP2), which the tutorial needs for its
+    # center and step-off lessons. The panel shows the FP2 when there is one,
+    # otherwise the arrow keys, so it reacts to input either way.
+    pad = next((s for s in sources if s is not keyboard), None)
+    shown = pad or keyboard
+    renderer = ScreenRenderer(game, pad_state=shown.zone_state if shown is not None else None)
     scanner = None
     if args.camera is not None:
         from objects.scanner import Scanner
@@ -177,9 +188,6 @@ def main():
         scanner = Scanner(args.camera)
         renderer.placement_grid = True
 
-    # The FP2 (if any) also reports which pad squares are occupied, which the
-    # tutorial and the --show-pad diagram use. The keyboard has no pad.
-    pad = next((s for s in sources if hasattr(s, "pad_zones")), None)
     tutorial = start_tutorial(game, pad) if args.tutorial else None
 
     running = True
@@ -237,8 +245,7 @@ def main():
                     tutorial = None
                     ticker.reset()
                 else:
-                    renderer.draw_tutorial(screen, tutorial,
-                                           pad.pad_zones() if pad is not None else None)
+                    renderer.draw_tutorial(screen, tutorial)
                     pygame.display.flip()
                     continue
 
@@ -254,9 +261,6 @@ def main():
                 ticker.reset()
 
             renderer.draw(screen)
-            if args.show_pad and pad is not None:
-                renderer.draw_pad(screen, pad.pad_zones(),
-                                  origin=(screen.get_width() - 3 * PAD_CELL - 16, 22))
             pygame.display.flip()
     finally:
         for source in sources:

@@ -33,14 +33,50 @@ CALIBRATION_BG = (255, 255, 255)
 SCAN_TEXT = (150, 150, 150)
 GRID_LINE = (95, 105, 125)
 TUTORIAL_BAND = 104   # height of the prompt band at the top
-PAD_CELL = 26         # one square of the d-pad diagram
-PAD_IDLE = (90, 98, 115)
-# (column, row) of each FP2 zone in the 3x3 d-pad diagram. Corners are dead.
-PAD_LAYOUT = {"up": (1, 0), "left": (0, 1), "center": (1, 1),
-              "right": (2, 1), "down": (1, 2)}
 NO_MARKER = (200, 60, 60, 90)   # translucent red: corner blocks + snake start
 
+# The on-screen d-pad mirrors the taped floor pad: lit zones are the ones
+# the FP2 currently reports, so a player can see the sensor keeping up.
+DPAD_DEAD = (26, 29, 38)
+DPAD_IDLE = (46, 52, 66)
+DPAD_EDGE = (70, 78, 96)
+DPAD_GLYPH = (150, 158, 176)
+DPAD_ON = (120, 230, 120)
+DPAD_CENTER_ON = (90, 165, 255)
+
 HUD_HEIGHT = 40
+GUTTER = 10
+# Below this the leftover strip is too cramped for a readable pad.
+DPAD_MIN_PX = 120
+# 3x3 pad: corners are the unassigned dead zones on the floor.
+DPAD_CELLS = {"up": (1, 0), "left": (0, 1), "center": (1, 1),
+              "right": (2, 1), "down": (1, 2)}
+DPAD_DEAD_CELLS = ((0, 0), (2, 0), (0, 2), (2, 2))
+
+
+def compute_layout(width, height, cols, rows):
+    """Place the play area and, in the leftover space, the d-pad panel.
+
+    The cell size is worked out from the whole window first, so the play
+    area is exactly the size it would be with no d-pad at all. Whatever
+    is left over becomes the panel and the grid shifts off it; if there is
+    too little to be legible, the panel is None and the grid stays
+    centred as before.
+    """
+    cell = max(1, min(width // cols, (height - HUD_HEIGHT) // rows))
+    grid_w, grid_h = cell * cols, cell * rows
+    slack_x = width - grid_w
+    slack_y = height - HUD_HEIGHT - grid_h
+
+    if slack_x >= DPAD_MIN_PX and slack_x >= slack_y:
+        # Widest strip is beside the grid: pad on the right, grid flush left.
+        return (cell, 0, HUD_HEIGHT + slack_y // 2,
+                pygame.Rect(grid_w, HUD_HEIGHT, slack_x, height - HUD_HEIGHT))
+    if slack_y >= DPAD_MIN_PX:
+        # Widest strip is below: pad along the bottom, grid pushed up.
+        return (cell, slack_x // 2, HUD_HEIGHT,
+                pygame.Rect(0, HUD_HEIGHT + grid_h, width, slack_y))
+    return cell, slack_x // 2, HUD_HEIGHT + slack_y // 2, None
 
 
 class ScreenRenderer:
@@ -51,30 +87,31 @@ class ScreenRenderer:
     handled by the projector itself, so no warping happens here.
     """
 
-    def __init__(self, game):
+    def __init__(self, game, pad_state=None):
         self.game = game
+        # Optional callable returning the live pad state (.occupied, .lost).
+        # None for keyboard-only play, where the pad is drawn as a legend.
+        self.pad_state = pad_state
         self.font = pygame.font.Font(None, 32)
         self.big_font = pygame.font.Font(None, 64)
         self.small_font = pygame.font.Font(None, 26)
-        self.tiny_font = pygame.font.Font(None, 20)
         self.prompt_font = pygame.font.Font(None, 48)
         self._notice = None
         self._marker_cache = {}
         # Show cell lines and no-marker cells between rounds. main.py turns
         # this on when a camera is set up for scanning.
         self.placement_grid = False
+        # Zone the tutorial wants the player to step into; outlined on the pad.
+        self.pad_target = None
 
     def _layout(self, surface):
         grid = self.game.grid
         width, height = surface.get_size()
-        cell = max(1, min(width // grid.width, (height - HUD_HEIGHT) // grid.height))
-        left = (width - cell * grid.width) // 2
-        top = HUD_HEIGHT + (height - HUD_HEIGHT - cell * grid.height) // 2
-        return cell, left, top
+        return compute_layout(width, height, grid.width, grid.height)
 
     def draw(self, surface, hud=True):
         surface.fill(BACKGROUND)
-        cell, left, top = self._layout(surface)
+        cell, left, top, panel = self._layout(surface)
 
         def rect(x, y, inset=0):
             return pygame.Rect(left + x * cell + inset, top + y * cell + inset,
@@ -95,6 +132,8 @@ class ScreenRenderer:
             color = SNAKE_HEAD if i == 0 else SNAKE_BODY
             pygame.draw.rect(surface, color, rect(x, y, inset=1), border_radius=cell // 5)
 
+        if panel is not None:
+            self._draw_dpad(surface, panel)
         if hud:
             self._draw_hud(surface)
         self._draw_overlay(surface, cell, left, top)
@@ -132,6 +171,85 @@ class ScreenRenderer:
             r = rect(x, y, inset=cell // 5)
             points = [r.midtop, r.midright, r.midbottom, r.midleft]
             pygame.draw.polygon(surface, self._color(key_id, KEY_COLORS), points)
+
+    def _draw_dpad(self, surface, panel):
+        """Draw the floor d-pad, lighting the zones the sensor reports.
+
+        Purely a mirror of the input state: with no sensor attached it is
+        still drawn, unlit, as a legend for the taped layout.
+        """
+        state = self.pad_state() if self.pad_state is not None else None
+        occupied = frozenset(getattr(state, "occupied", None) or ())
+        lost = bool(getattr(state, "lost", False))
+
+        pad = panel.inflate(-2 * GUTTER, -2 * GUTTER)
+        caption_h = self.small_font.get_height() + GUTTER
+        size = min(pad.width, pad.height - caption_h)
+        if size < DPAD_MIN_PX:
+            return
+
+        cell = size // 3
+        side = cell * 3
+        ox = pad.centerx - side // 2
+        oy = pad.top + max(0, (pad.height - caption_h - side) // 2)
+        gap = max(2, cell // 14)
+        radius = max(3, cell // 8)
+
+        def cell_rect(cx, cy):
+            return pygame.Rect(ox + cx * cell, oy + cy * cell,
+                               cell, cell).inflate(-2 * gap, -2 * gap)
+
+        # Unassigned corners, so the shape reads as the floor layout.
+        for cx, cy in DPAD_DEAD_CELLS:
+            pygame.draw.rect(surface, DPAD_DEAD, cell_rect(cx, cy),
+                             border_radius=radius)
+
+        for name, (cx, cy) in DPAD_CELLS.items():
+            r = cell_rect(cx, cy)
+            active = name in occupied and not lost
+            if active:
+                fill = DPAD_CENTER_ON if name == "center" else DPAD_ON
+            else:
+                fill = DPAD_IDLE
+            pygame.draw.rect(surface, fill, r, border_radius=radius)
+            pygame.draw.rect(surface, DPAD_EDGE, r, 2, border_radius=radius)
+            if name == self.pad_target:
+                pygame.draw.rect(surface, WARNING, r.inflate(gap * 2, gap * 2),
+                                 max(3, gap), border_radius=radius)
+            glyph = BACKGROUND if active else DPAD_GLYPH
+            if name == "center":
+                pygame.draw.circle(surface, glyph, r.center,
+                                   max(3, min(r.width, r.height) // 7), 2)
+            else:
+                self._draw_arrow(surface, r, name, glyph)
+
+        if self.pad_state is None:
+            caption = "floor d-pad"
+        elif lost:
+            caption = "no player on pad"
+        elif occupied:
+            caption = " + ".join(sorted(occupied))
+        else:
+            caption = "pad empty"
+        label = self.small_font.render(caption, True, DPAD_GLYPH)
+        surface.blit(label, label.get_rect(midtop=(pad.centerx, oy + side + GUTTER)))
+        # Stepping toward the wall is UP, the one mapping players get wrong.
+        wall = self.small_font.render("wall", True, DPAD_GLYPH)
+        surface.blit(wall, wall.get_rect(midbottom=(pad.centerx, oy - 2)))
+
+    @staticmethod
+    def _draw_arrow(surface, r, name, color):
+        cx, cy = r.center
+        h = max(3, min(r.width, r.height) // 4)
+        if name == "up":
+            points = [(cx, cy - h), (cx - h, cy + h), (cx + h, cy + h)]
+        elif name == "down":
+            points = [(cx, cy + h), (cx - h, cy - h), (cx + h, cy - h)]
+        elif name == "left":
+            points = [(cx - h, cy), (cx + h, cy - h), (cx + h, cy + h)]
+        else:
+            points = [(cx + h, cy), (cx - h, cy - h), (cx - h, cy + h)]
+        pygame.draw.polygon(surface, color, points)
 
     def _draw_hud(self, surface):
         text = f"Score: {self.game.score}    Best: {self.game.best}"
@@ -172,14 +290,16 @@ class ScreenRenderer:
 
     # --- tutorial -------------------------------------------------------------
 
-    def draw_tutorial(self, surface, tutorial, pad_zones=None):
-        """Draw the tutorial: its board, then a prompt band across the top
-        and, when steering with the pad, a live d-pad diagram."""
+    def draw_tutorial(self, surface, tutorial):
+        """Draw the tutorial: its board (with the d-pad panel, outlining the
+        square the current step wants), then a prompt band across the top."""
         main_game, self.game = self.game, tutorial.game
+        self.pad_target = tutorial.step.target_zone
         try:
             self.draw(surface, hud=False)
         finally:
             self.game = main_game
+            self.pad_target = None
 
         step = tutorial.step
         width = surface.get_width()
@@ -201,24 +321,6 @@ class ScreenRenderer:
             hint = self.font.render(tutorial.hint, True, WARNING)
             surface.blit(hint, hint.get_rect(midtop=(width // 2, TUTORIAL_BAND + 8)))
 
-        if pad_zones is not None:
-            self.draw_pad(surface, pad_zones, target=step.target_zone,
-                          origin=(width - 3 * PAD_CELL - 16, 26))
-
-    def draw_pad(self, surface, zones, target=None, origin=(0, 0)):
-        """3x3 d-pad diagram: occupied zones lit, the zone to step into outlined.
-        'wall' is printed on top because stepping toward the wall is UP."""
-        ox, oy = origin
-        label = self.tiny_font.render("wall", True, SCAN_TEXT)
-        surface.blit(label, label.get_rect(midbottom=(ox + 1.5 * PAD_CELL, oy - 1)))
-        for name, (col, row) in PAD_LAYOUT.items():
-            r = pygame.Rect(ox + col * PAD_CELL, oy + row * PAD_CELL, PAD_CELL - 3, PAD_CELL - 3)
-            if name in zones:
-                pygame.draw.rect(surface, SNAKE_HEAD, r)
-            else:
-                pygame.draw.rect(surface, PAD_IDLE, r, 1)
-            if name == target:
-                pygame.draw.rect(surface, WARNING, r.inflate(4, 4), 2)
 
     # --- marker placement ---------------------------------------------------
 
@@ -271,7 +373,7 @@ class ScreenRenderer:
         corners. Shown while the camera scans: white lights the paper markers
         and no game graphics cover them."""
         surface.fill(CALIBRATION_BG)
-        cell, left, top = self._layout(surface)
+        cell, left, top, _panel = self._layout(surface)
         grid = self.game.grid
         for marker_id, (gx, gy, size) in corner_targets(grid.width, grid.height).items():
             px = max(6, round(size * cell))

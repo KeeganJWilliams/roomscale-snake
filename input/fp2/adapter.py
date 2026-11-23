@@ -13,6 +13,7 @@ import threading
 import time
 from dataclasses import dataclass
 
+from ..base import PadState
 from .steering import Steering, ZoneEvent
 
 log = logging.getLogger(__name__)
@@ -87,11 +88,15 @@ class Fp2Input:
             self.telemetry.record(events, commands)
         return commands
 
-    def pad_zones(self):
-        """Names of the d-pad zones someone is standing in right now (e.g.
-        {"center"}), as of the last poll(). For the tutorial and the pad
-        diagram; steering itself only uses Commands."""
-        return frozenset(self.steering.occupied)
+    def zone_state(self):
+        """Snapshot of the pad for the renderer.
+
+        Safe without a lock: steering is only ever mutated by poll(), and
+        both poll() and drawing happen on the game-loop thread. The client
+        thread only ever puts events on the queue.
+        """
+        return PadState(occupied=frozenset(self.steering.occupied),
+                        lost=self.steering.lost)
 
     def close(self):
         self._stop.set()

@@ -299,19 +299,28 @@ class TestTutorialScreen(unittest.TestCase):
 
     def test_draws_and_restores_the_main_game(self):
         from engine import Game
-        from render.screen import ScreenRenderer, SNAKE_HEAD
+        from input import PadState
+        from render.screen import WARNING, ScreenRenderer
 
         main_game = Game()
-        renderer = ScreenRenderer(main_game)
-        t = Tutorial(20, 15, has_pad=True, pad_zones=FakePad())
-        surface = self.pygame.Surface((1280, 800))
-        renderer.draw_tutorial(surface, t, pad_zones={"center"})
+        renderer = ScreenRenderer(main_game,
+                                  pad_state=lambda: PadState(frozenset({"center"})))
+        pad = FakePad()
+        pad.zones = {"center"}
+        t = Tutorial(20, 15, has_pad=True, pad_zones=pad)
+        run(t, 0.1)                              # past "stand"; now "step forward"
+        self.assertEqual(t.step.target_zone, "up")
+        surface = self.pygame.Surface((1280, 760))
+        renderer.draw_tutorial(surface, t)
         self.assertIs(renderer.game, main_game)
-        # The pad's center square is lit.
-        from render.screen import PAD_CELL
-        cx = 1280 - 3 * PAD_CELL - 16 + PAD_CELL + PAD_CELL // 2
-        cy = 26 + PAD_CELL + PAD_CELL // 2
-        self.assertEqual(tuple(surface.get_at((cx, cy)))[:3], SNAKE_HEAD)
+        self.assertIsNone(renderer.pad_target)
+        # The d-pad panel (right of the 960px board) outlines the target square.
+        cell, left, top, panel = renderer._layout(surface)
+        self.assertIsNotNone(panel)
+        outlined = any(tuple(surface.get_at((x, y)))[:3] == WARNING
+                       for x in range(panel.left, panel.right, 2)
+                       for y in range(panel.top, panel.bottom, 2))
+        self.assertTrue(outlined)
 
 
 class TestFp2PadZones(unittest.TestCase):
@@ -326,7 +335,7 @@ class TestFp2PadZones(unittest.TestCase):
         fp2 = Fp2Input(config, client_factory=lambda *args: None)
         fp2._queue.put(ZoneEvent("1.10", True))
         fp2.poll()
-        self.assertEqual(fp2.pad_zones(), {"center"})
+        self.assertEqual(fp2.zone_state().occupied, {"center"})
 
 
 if __name__ == "__main__":
